@@ -1,0 +1,8 @@
+# Build output (regenerate with tools/build.sh and tools/sfx.py)
+build/*
+!build/sfx/
+build/sfx/*
+!build/sfx/ids.json
+tools/dev/lsp/sourcemap.json
+__pycache__/
+.claude/
