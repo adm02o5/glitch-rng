@@ -17,6 +17,8 @@ export type Profile = {
 	Scripts: { [string]: number }, -- script id -> owned count
 	Active: { [string]: number }, -- script id -> seconds left
 	Breach: number, -- pending x20 rolls
+	Bits: number,
+	Quest: { i: number, n: number }, -- questline index, progress
 	Best: string?, -- rarest aura id
 	Settings: { [string]: any },
 	Lock: { job: string, t: number }?,
@@ -33,6 +35,8 @@ local function default(): Profile
 		Scripts = {},
 		Active = {},
 		Breach = 0,
+		Bits = 0,
+		Quest = { i = 1, n = 0 },
 		Best = nil,
 		Settings = { Skip = 0, Sfx = 1, Music = 0.6, Others = true, Quick = false },
 		Lock = nil,

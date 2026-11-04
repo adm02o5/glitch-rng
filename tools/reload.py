@@ -41,6 +41,23 @@ def lua_str(s: str) -> str:
     return f"[{eq}[{s}]{eq}]"
 
 
+GUARD = (
+    'local s = game.ReplicatedStorage:FindFirstChild("Shared") '
+    'local ok = s and s:FindFirstChild("RNG") and s:FindFirstChild("AuraFX") and s:FindFirstChild("Config") '
+    'and string.find(s.Config.Source, "Glitch RNG", 1, true) '
+    'print(ok and "GLITCHRNG_OK" or ("OTHER_PLACE " .. game.Name))'
+)
+
+
+def check_place():
+    """Refuse to touch any place that is not Glitch RNG (Studio may have another game open)."""
+    out = subprocess.run([sys.executable, str(ROOT / "tools" / "studio.py"), "call", "run_code", json.dumps({"command": GUARD})],
+                         capture_output=True, text=True, timeout=60).stdout
+    if "GLITCHRNG_OK" not in out:
+        sys.exit("STOP: the place open in Studio is not Glitch RNG -> " + out.strip())
+
+
+check_place()
 files = [pathlib.Path(f).resolve() for f in sys.argv[1:]] or sorted((ROOT / "src").rglob("*.lua"))
 for f in files:
     t = target(f)

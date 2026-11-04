@@ -38,6 +38,11 @@ def studio(tool, args):
     return out.stdout
 
 
+guard = studio("run_code", {"command": 'local s = game.ReplicatedStorage:FindFirstChild("Shared") '
+                'print((s and s:FindFirstChild("RNG") and s:FindFirstChild("AuraFX")) and "GLITCHRNG_OK" or ("OTHER_PLACE " .. game.Name))'})
+if "GLITCHRNG_OK" not in guard:
+    sys.exit("STOP: the place open in Studio is not Glitch RNG -> " + guard.strip())
+
 install = ("local s = game.StarterPlayer.StarterPlayerScripts:FindFirstChild('ZZ_Relay') if s then s:Destroy() end "
            "local ls = Instance.new('LocalScript') ls.Name = 'ZZ_Relay' ls.Source = [=====[" + relay_source + "]=====]" +
            " ls.Parent = game.StarterPlayer.StarterPlayerScripts print('relay ok')")

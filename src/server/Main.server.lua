@@ -14,6 +14,7 @@ local Data = require(script.Parent.Data)
 local Biome = require(script.Parent.Biome)
 local Map = require(script.Parent.Map)
 local Board = require(script.Parent.Board)
+local NPC = require(script.Parent.NPC)
 
 -- Remotes ------------------------------------------------------------------
 local remotes = Instance.new("Folder")
@@ -70,6 +71,8 @@ local function view(p: Data.Profile)
 		Breach = p.Breach,
 		Best = p.Best,
 		Settings = p.Settings,
+		Bits = p.Bits,
+		Quest = p.Quest,
 		Luck = s.luck,
 		Speed = s.speed,
 		NextBoot = Config.Roll.BonusEvery - (p.Rolls % Config.Roll.BonusEvery),
@@ -116,6 +119,23 @@ task.spawn(function()
 	end)
 end)
 
+-- Quests -------------------------------------------------------------------------
+-- Advances the active quest when an event matches its goal. Progress is capped at the goal.
+local function questEvent(p: Data.Profile, kind: string, tierIdx: number?, inBiome: boolean?)
+	local q = Config.QuestAt(p.Quest.i)
+	local g = q.goal
+	if g.kind ~= kind or p.Quest.n >= g.n then
+		return
+	end
+	if g.tier and (tierIdx or 0) < g.tier then
+		return
+	end
+	if g.biome and not inBiome then
+		return
+	end
+	p.Quest.n += 1
+end
+
 -- Actions --------------------------------------------------------------------
 local Actions: { [string]: (Player, Data.Profile, any) -> any } = {}
 
@@ -143,6 +163,10 @@ function Actions.Roll(plr, p)
 
 	local aura = RNG.Roll(luck, Biome.Current(), rng)
 	p.Inv[aura.id] = (p.Inv[aura.id] or 0) + 1
+	local tier = Config.TierOf(aura.chance)
+	local bits = Config.RollBits[tier.id] or 1
+	p.Bits += bits
+	questEvent(p, "roll", Config.TierIndex(aura.chance), Biome.Current() ~= "Normal")
 	local first = p.Found[aura.id] == nil
 	if first then
 		p.Found[aura.id] = os.time()
@@ -170,7 +194,7 @@ function Actions.Roll(plr, p)
 	end
 	Board.Bump(plr, p.Rolls)
 	send(plr)
-	return { ok = true, aura = aura.id, boot = boot, breach = breach, first = first, luck = luck, cd = cd }
+	return { ok = true, aura = aura.id, boot = boot, breach = breach, first = first, luck = luck, cd = cd, bits = bits }
 end
 
 function Actions.Equip(plr, p, id)
@@ -178,6 +202,7 @@ function Actions.Equip(plr, p, id)
 		return false
 	end
 	p.Aura = id
+	questEvent(p, "equip")
 	applyLook(plr, p)
 	send(plr)
 	return true
@@ -212,6 +237,7 @@ function Actions.CraftRig(plr, p, id)
 	consume(p, rig.recipe)
 	p.Rigs[rig.id] = true
 	p.Rig = rig.id
+	questEvent(p, "craftRig")
 	applyLook(plr, p)
 	send(plr)
 	return true
@@ -270,6 +296,7 @@ function Actions.UseScript(plr, p, id)
 	else
 		p.Breach += 1
 	end
+	questEvent(p, "useScript")
 	send(plr)
 	return true
 end
@@ -285,6 +312,36 @@ function Actions.Setting(plr, p, args)
 		v = math.clamp(v, 0, 10)
 	end
 	p.Settings[args.k] = v
+	return true
+end
+
+function Actions.QuestClaim(plr, p)
+	local q = Config.QuestAt(p.Quest.i)
+	if p.Quest.n < q.goal.n then
+		return false
+	end
+	p.Bits += q.bits
+	for id, n in (q.scripts or {}) :: { [string]: number } do
+		p.Scripts[id] = (p.Scripts[id] or 0) + n
+	end
+	p.Quest = { i = p.Quest.i + 1, n = 0 }
+	send(plr)
+	return { bits = q.bits, scripts = q.scripts }
+end
+
+function Actions.ShopBuy(plr, p, id)
+	local item = nil
+	for _, it in Config.Shop do
+		if it.id == id then
+			item = it
+		end
+	end
+	if not item or p.Bits < item.price then
+		return false
+	end
+	p.Bits -= item.price
+	p.Scripts[item.id] = (p.Scripts[item.id] or 0) + 1
+	send(plr)
 	return true
 end
 
@@ -451,3 +508,4 @@ if not ok then
 	warn("[Map] build failed:", err)
 end
 Board.Init()
+task.spawn(NPC.Build)

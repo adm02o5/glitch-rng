@@ -358,6 +358,24 @@ function Hud.Start()
 	})
 	Ctx.Toast = Hud.Toast
 
+	local bitsL = Kit.label(root, "◆ 0 BITS", 16, {
+		FontFace = Kit.MonoBold,
+		TextColor3 = P.Lime,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -24, 0, 46),
+		Size = UDim2.fromOffset(240, 20),
+		TextXAlignment = Enum.TextXAlignment.Right,
+	})
+	local lastBits = -1
+	Ctx.Changed.Event:Connect(function(d)
+		local b = d.Bits or 0
+		bitsL.Text = "◆ " .. RNG.Commas(b) .. " BITS"
+		if lastBits >= 0 and b > lastBits then
+			Kit.glitch(bitsL, 0.2)
+		end
+		lastBits = b
+	end)
+
 	Ctx.Changed.Event:Connect(function(d)
 		statsLabels.Luck.Text = string.format("x%.2f", d.Luck or 1)
 		statsLabels.Speed.Text = string.format("x%.2f", d.Speed or 1)

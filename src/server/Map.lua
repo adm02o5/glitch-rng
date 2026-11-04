@@ -685,7 +685,12 @@ local function bench(parent: Instance, cf: CFrame, accent: Color3)
 	for i = 0, 2 do
 		deco(m, Vector3.new(5.4, 0.36, 0.12), cf * CFrame.new(0, 2.2 + i * 0.45, 0.95 + i * 0.09) * CFrame.Angles(-0.2, 0, 0), rgb(28, 30, 40), METALM)
 	end
-	box(m, Vector3.new(5.4, 0.2, 2), cf * CFrame.new(0, 1.55, 0), rgb(18, 19, 26), METALM).Transparency = 1
+	-- Two invisible seats so two players can sit (sitter faces cf.LookVector, back to the backrest).
+	for _, sx in { -1.3, 1.3 } do
+		local seat = Instance.new("Seat")
+		setup(seat, m, Vector3.new(2.4, 0.2, 1.8), cf * CFrame.new(sx, 1.55, 0), rgb(18, 19, 26), METALM)
+		seat.Transparency = 1
+	end
 	neon(m, Vector3.new(4.6, 0.08, 0.08), cf * CFrame.new(0, 1.38, -0.9), accent, true)
 	deco(m, Vector3.new(4.6, 0.04, 1.6), cf * CFrame.new(0, 0.03, 0), scaleColor(accent, 0.12), NEON)
 end
@@ -2284,13 +2289,12 @@ local function buildYards(root: Instance)
 	crateStack(se, CFrame.new(110, 0, 112))
 	crateStack(se, CFrame.new(-112, 0, 112))
 	crateStack(se, CFrame.new(118, 0, -50))
-	-- benches near spawn and around the plaza
-	for i = 0, 5 do
-		local a = i / 6 * PI * 2 + PI / 6
-		local pos = Vector3.new(math.cos(a) * 30, 0, math.sin(a) * 30)
-		if (pos - CORE_POS).Magnitude > 26 then
-			bench(se, CFrame.lookAt(pos, Vector3.zero), if i % 2 == 0 then CYAN else MAG)
-		end
+	-- benches around the plaza, only in the sectors between the walkways
+	-- (walkways run from spawn to Lab 0°, Leaderboard 90°, Index ~132°, Forge 180°, Core 270°)
+	for i, deg in { 40, 62, 222, 246, 296, 320 } do
+		local a = math.rad(deg)
+		local pos = Vector3.new(math.cos(a) * 38, 0, math.sin(a) * 38)
+		bench(se, CFrame.lookAt(pos, Vector3.zero), if i % 2 == 0 then CYAN else MAG)
 	end
 	for _, pos in { Vector3.new(-34, 0, 34), Vector3.new(34, 0, 34), Vector3.new(-40, 0, -24), Vector3.new(40, 0, -24) } do
 		cyberTree(se, CFrame.new(pos), pick({ CYAN, MAG }))

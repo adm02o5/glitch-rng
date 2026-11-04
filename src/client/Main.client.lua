@@ -12,6 +12,7 @@ local Ctx = require(script.Parent.Ctx)
 local Sfx = require(script.Parent.Sfx)
 local Kit = require(script.Parent.UI.Kit)
 local Hud = require(script.Parent.UI.Hud)
+local PlayerList = require(script.Parent.UI.PlayerList)
 local Roller = require(script.Parent.Roller)
 local AuraRender = require(script.Parent.AuraRender)
 local Prompts = require(script.Parent.Prompts)
@@ -24,6 +25,7 @@ pcall(function()
 end)
 
 Hud.Start()
+PlayerList.Start()
 
 -- Every module in UI/Windows returns a function that builds and returns a Kit window.
 for _, m in script.Parent.UI.Windows:GetChildren() do

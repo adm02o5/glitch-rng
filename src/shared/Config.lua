@@ -260,6 +260,82 @@ Config.Roll = {
 	GlobalAnnounce = 1000000, -- cross-server message at 1 in N or rarer
 }
 
+-- Currency earned from rolls (by tier) and quests, spent at Elliot's stall.
+Config.Currency = "BITS"
+Config.RollBits = {
+	Basic = 1,
+	Enhanced = 3,
+	Rare = 10,
+	Epic = 40,
+	Legendary = 200,
+	Mythic = 1200,
+	Corrupted = 6000,
+	Singularity = 40000,
+} :: { [string]: number }
+
+-- Elliot's questline. goal.kind: "roll" (n rolls; optional tier = min tier index in Config.Tiers,
+-- biome = true means only rolls during a non-Normal biome), "equip", "useScript", "craftRig".
+export type Quest = {
+	title: string,
+	text: string,
+	goal: { kind: string, n: number, tier: number?, biome: boolean? },
+	bits: number,
+	scripts: { [string]: number }?,
+}
+
+Config.Quests = {
+	{ title = "Hello, friend.", text = "Roll 10 times. Let's see what the system gives you.",
+		goal = { kind = "roll", n = 10 }, bits = 50, scripts = { Luck = 1 } },
+	{ title = "White Noise", text = "Roll 50 times. Patterns hide in the noise.",
+		goal = { kind = "roll", n = 50 }, bits = 100 },
+	{ title = "First Signal", text = "Roll an ENHANCED aura or better.",
+		goal = { kind = "roll", n = 1, tier = 2 }, bits = 120 },
+	{ title = "Wear It", text = "Equip an aura from your storage.",
+		goal = { kind = "equip", n = 1 }, bits = 60 },
+	{ title = "Script Kiddie", text = "Run any script from the SCRIPTS menu.",
+		goal = { kind = "useScript", n = 1 }, bits = 150, scripts = { Speed = 1 } },
+	{ title = "Hardware", text = "Craft any rig at the RIG FORGE.",
+		goal = { kind = "craftRig", n = 1 }, bits = 250 },
+	{ title = "Rare Packet", text = "Roll a RARE aura or better.",
+		goal = { kind = "roll", n = 1, tier = 3 }, bits = 400, scripts = { Luck = 2 } },
+	{ title = "Storm Chaser", text = "Roll 25 times during any biome event.",
+		goal = { kind = "roll", n = 25, biome = true }, bits = 500 },
+	{ title = "The Grind", text = "Roll 500 times. Control is an illusion. Persistence isn't.",
+		goal = { kind = "roll", n = 500 }, bits = 800 },
+	{ title = "Epic Breach", text = "Roll an EPIC aura or better.",
+		goal = { kind = "roll", n = 1, tier = 4 }, bits = 1500, scripts = { Breach = 1 } },
+	{ title = "Society", text = "Roll 2,000 times.",
+		goal = { kind = "roll", n = 2000 }, bits = 3000 },
+	{ title = "Legend", text = "Roll a LEGENDARY aura or better. Then we talk.",
+		goal = { kind = "roll", n = 1, tier = 5 }, bits = 10000, scripts = { Breach = 2 } },
+} :: { Quest }
+
+-- After the questline: endless repeatable contracts.
+Config.Contract = {
+	title = "Contract",
+	text = "Roll 300 times. Same deal as always.",
+	goal = { kind = "roll", n = 300 },
+	bits = 600,
+	scripts = { Luck = 1 },
+} :: Quest
+
+-- Elliot's stall: scripts for BITS.
+Config.Shop = {
+	{ id = "Luck", price = 200 },
+	{ id = "Speed", price = 150 },
+	{ id = "Breach", price = 3000 },
+} :: { { id: string, price: number } }
+
+-- NPC look (R6, classic clothing + rigid accessories from the marketplace).
+Config.Elliot = {
+	Shirt = 2037483328, -- black hoodie
+	Pants = 6280363116, -- dark jeans
+	Hair = 12947603127, -- messy black hair
+	Hood = 127306972712760, -- black hood
+	Skin = Color3.fromRGB(234, 196, 160),
+	Position = Vector3.new(62, 0, 70),
+}
+
 function Config.TierOf(chance: number): Tier
 	local best = Config.Tiers[1]
 	for _, t in Config.Tiers do
@@ -268,6 +344,20 @@ function Config.TierOf(chance: number): Tier
 		end
 	end
 	return best
+end
+
+function Config.TierIndex(chance: number): number
+	local idx = 1
+	for i, t in Config.Tiers do
+		if chance >= t.min then
+			idx = i
+		end
+	end
+	return idx
+end
+
+function Config.QuestAt(i: number): Quest
+	return Config.Quests[i] or Config.Contract
 end
 
 return Config

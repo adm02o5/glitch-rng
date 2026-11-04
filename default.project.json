@@ -3,22 +3,31 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" }
+      "Shared": {
+        "$path": "src/shared"
+      }
     },
     "ServerScriptService": {
-      "Server": { "$path": "src/server" }
+      "Server": {
+        "$path": "src/server"
+      }
     },
     "StarterPlayer": {
       "$properties": {
         "CameraMaxZoomDistance": 60,
-        "CharacterWalkSpeed": 18
+        "CharacterWalkSpeed": 18,
+        "GameSettingsAvatar": "R6"
       },
       "StarterPlayerScripts": {
-        "Client": { "$path": "src/client" }
+        "Client": {
+          "$path": "src/client"
+        }
       }
     },
     "StarterGui": {
-      "$properties": { "ResetPlayerGuiOnSpawn": false }
+      "$properties": {
+        "ResetPlayerGuiOnSpawn": false
+      }
     },
     "Lighting": {
       "$properties": {
@@ -28,16 +37,28 @@
         "GlobalShadows": true,
         "EnvironmentDiffuseScale": 0.4,
         "EnvironmentSpecularScale": 1,
-        "Ambient": [0.04, 0.04, 0.07],
-        "OutdoorAmbient": [0.12, 0.1, 0.2],
+        "Ambient": [
+          0.04,
+          0.04,
+          0.07
+        ],
+        "OutdoorAmbient": [
+          0.12,
+          0.1,
+          0.2
+        ],
         "ExposureCompensation": 0.1
       }
     },
     "SoundService": {
-      "$properties": { "RespectFilteringEnabled": true }
+      "$properties": {
+        "RespectFilteringEnabled": true
+      }
     },
     "Workspace": {
-      "$properties": { "FilteringEnabled": true }
+      "$properties": {
+        "FilteringEnabled": true
+      }
     }
   }
 }

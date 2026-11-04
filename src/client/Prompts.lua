@@ -12,8 +12,8 @@ local new = Kit.new
 
 local Prompts = {}
 
-local KIND_WINDOW = { Forge = "Forge", Lab = "Lab", Index = "Index" }
-local KIND_COLOR = { Forge = P.Amber, Lab = P.Lime, Index = P.Magenta }
+local KIND_WINDOW = { Forge = "Forge", Lab = "Lab", Index = "Index", Elliot = "Elliot" }
+local KIND_COLOR = { Forge = P.Amber, Lab = P.Lime, Index = P.Magenta, Elliot = P.Lime }
 
 local function build(prompt: ProximityPrompt): BillboardGui
 	local kind = prompt:GetAttribute("Kind")
