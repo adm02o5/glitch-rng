@@ -36,5 +36,6 @@ Playtested in Studio: server/rolls/biomes/cutscene/auras/windows all run without
 - `python3 tools/reload.py [files]` pushes src/*.lua into the open Studio place (edit mode).
 - `cd tools && python3 playtest.py <sec> - tests/smoke_client.lua` runs a playtest with client logs;
   `python3 tools/shot.py name --count N --every S` grabs Studio-window screenshots (run in background during play).
-- The black square at the exact screen centre in screenshots is most likely the Roblox cursor on Linux (unconfirmed).
-- Next: polish pass on aura visuals (Glitch, Cyber Seraph looked weak in close-up).
+- The black square at the screen centre in screenshots is a Studio overlay (present even before/after play, not in game). Ignore it.
+- Aura polish pass done 2026-11-04 (every aura has a sigil, root light, bigger silhouette; scale grows with tier).
+- `tests/aura_gallery.lua` + `tools/gallery_sheets.py g <name>` = close-up of every aura → build/<name>_N.jpg.

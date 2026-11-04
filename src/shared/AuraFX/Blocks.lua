@@ -369,4 +369,270 @@ function Blocks.glyph(
 	return a, l, g
 end
 
+---------------------------------------------------------------- presence helpers
+-- Higher-level pieces that give an aura readable presence at gameplay distance
+-- (ground sigil, sky pillar, orbiters, root light, floor emitter, tip trails).
+
+export type GlowOpts = {
+	y: number?, -- root-space Y of the light (default chest)
+	body: BasePart?, -- parent part (default root)
+	pulse: number?, -- breathing period (s)
+	amp: number?, -- brightness added at the top of the pulse
+	flicker: number?, -- random +-flicker/2 every frame
+}
+
+-- Coloured PointLight that tints the character and the floor around it.
+function Blocks.rootLight(c: Ctx, color: Color3, bright: number, range: number, o: GlowOpts?): PointLight
+	local opts: GlowOpts = o or {}
+	local a = Core.att(c, opts.body, CF(0, opts.y or c.chestY, 0))
+	local l = Core.light(a, color, bright, range)
+	local period = opts.pulse
+	local amp = opts.amp or 0
+	local flick = opts.flicker or 0
+	if period or flick > 0 then
+		local rng = c.rng
+		local off = c.phase * 0.137
+		Core.on(c, function(t)
+			local b = bright
+			if period then
+				b += Core.pulse(t, period, off) * amp
+			end
+			if flick > 0 then
+				b += (rng:NextNumber() - 0.5) * flick
+			end
+			l.Brightness = math.max(0, b)
+		end)
+	end
+	return l
+end
+
+export type SigilOpts = {
+	radius: number,
+	color: Color3,
+	color2: Color3?,
+	y: number?, -- root-space Y (default: the soles)
+	width: number?, -- outer circle width (default scales with radius)
+	rings: number?, -- concentric beam circles (default 3)
+	ticks: number?, -- rotating segment parts riding the outer ring (default 0)
+	tickSize: Vector3?,
+	spokes: number?, -- radial beams between inner and outer ring (default 0)
+	spin: number?, -- rad/s for ticks / spokes
+	glow: number?, -- transparency of a soft neon floor disc (nil = no disc)
+	glowColor: Color3?,
+	pulse: number?, -- breathing period of the circles' transparency
+}
+
+export type Sigil = { disc: BasePart?, circles: { Circle }, ticks: { BasePart }, spokes: { Beam } }
+
+-- Ground sigil: concentric beam circles, optional rotating ticks / spokes and a soft
+-- glowing floor disc. Cheap (beams) apart from the disc and ticks.
+function Blocks.sigil(c: Ctx, o: SigilOpts): Sigil
+	local R = o.radius
+	local y = (o.y or c.groundY) + 0.04
+	local col2 = o.color2 or o.color
+	local w = o.width or math.max(0.08, R * 0.022)
+	local n = o.rings or 3
+	local circles: { Circle } = {}
+	local baseTr: { number } = {}
+	for k = 1, n do
+		local f = if n > 1 then 1 - (k - 1) / (n - 1) * 0.55 else 1
+		local tr = if k == 1 then 0.05 else 0.3
+		baseTr[k] = tr
+		circles[k] = Blocks.circle(c, {
+			radius = R * f,
+			color = if k % 2 == 1 then o.color else col2,
+			width = if k == 1 then w else w * 0.55,
+			at = CF(0, y + k * 0.004, 0),
+			tr = tr,
+			n = if R * f > 4 then 10 else 8,
+		})
+	end
+	local disc: BasePart? = nil
+	if o.glow then
+		disc = Core.part(c, V(0.05, R * 2.1, R * 2.1), o.glowColor or o.color, Enum.Material.Neon, o.glow, Enum.PartType.Cylinder)
+	end
+	local spin = o.spin or 0.25
+	local ticks: { BasePart } = {}
+	if o.ticks and o.ticks > 0 then
+		ticks = Blocks.ring(c, {
+			n = o.ticks,
+			radius = R * 0.86,
+			seg = o.tickSize or V(math.max(0.12, R * 0.05), 0.06, 0),
+			color = o.color,
+			color2 = col2,
+			spin = spin,
+			anchor = function()
+				return CF(0, y + 0.012, 0)
+			end,
+		})
+	end
+	local spokes: { Beam } = {}
+	local spA: { Attachment } = {}
+	local spB: { Attachment } = {}
+	local ns = o.spokes or 0
+	for i = 1, ns do
+		spA[i] = Core.att(c)
+		spB[i] = Core.att(c)
+		spokes[i] = Core.beam(c, spA[i], spB[i], col2, w * 0.7, { w1 = w * 0.25, segs = 1, tr = NumberSequence.new(0.25, 0.6) })
+	end
+	local pulse = o.pulse
+	Core.on(c, function(t, _, root)
+		if disc then
+			Core.put(disc, root * CF(0, y - 0.025, 0) * ANG(0, 0, math.pi / 2))
+		end
+		if ns > 0 then
+			local rot = -t * spin * 0.6
+			for i = 1, ns do
+				local a = rot + (i - 1) / ns * TAU
+				local cs, sn = math.cos(a), math.sin(a)
+				spA[i].Position = V(cs * R * 0.42, y + 0.008, sn * R * 0.42)
+				spB[i].Position = V(cs * R * 0.97, y + 0.008, sn * R * 0.97)
+			end
+		end
+		if pulse then
+			local p = Core.pulse(t, pulse)
+			for k, cir in circles do
+				Blocks.setBeamsTransparency(cir.beams, baseTr[k] + p * 0.35)
+			end
+		end
+	end)
+	return { disc = disc, circles = circles, ticks = ticks, spokes = spokes }
+end
+
+export type PillarOpts = {
+	color: Color3,
+	color2: Color3?,
+	height: number,
+	width: number,
+	y: number?, -- root-space Y of the base (default: the soles)
+	tr: number?, -- transparency at the base (fades to 1 at the top)
+	streams: number?, -- thin scrolling data streams circling the pillar
+	radius: number?, -- stream circle radius
+	spin: number?,
+}
+
+-- Vertical light column reaching into the sky (beams only, no parts).
+function Blocks.pillar(c: Ctx, o: PillarOpts): { Beam }
+	local y0 = o.y or c.groundY
+	local tr0 = o.tr or 0.35
+	local col2 = o.color2 or o.color
+	local a0 = Core.att(c, nil, CF(0, y0, 0))
+	local a1 = Core.att(c, nil, CF(0, y0 + o.height, 0))
+	local beams: { Beam } = {}
+	beams[1] = Core.beam(c, a0, a1, o.color, o.width, {
+		color2 = col2,
+		w1 = o.width * 0.55,
+		segs = 2,
+		tr = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, math.min(1, tr0 + 0.2)),
+			NumberSequenceKeypoint.new(0.08, tr0),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	})
+	beams[2] = Core.beam(c, a0, a1, Color3.new(1, 1, 1), o.width * 0.3, {
+		w1 = o.width * 0.12,
+		segs = 2,
+		tr = NumberSequence.new(math.min(1, tr0 + 0.1), 1),
+		zoff = 0.05,
+	})
+	local n = o.streams or 0
+	local r = o.radius or o.width * 0.6
+	local bots: { Attachment } = {}
+	local tops: { Attachment } = {}
+	for i = 1, n do
+		bots[i] = Core.att(c)
+		tops[i] = Core.att(c)
+		table.insert(
+			beams,
+			Core.beam(c, bots[i], tops[i], col2, 0.18, {
+				w1 = 0.06,
+				segs = 2,
+				tex = Core.TEX.square,
+				texLen = 1.4,
+				texSpeed = 3 + i,
+				tr = NumberSequence.new(0.1, 1),
+			})
+		)
+	end
+	if n > 0 then
+		local spin = o.spin or 0.6
+		Core.on(c, function(t)
+			for i = 1, n do
+				local a = t * spin + (i - 1) / n * TAU
+				local p = V(math.cos(a) * r, 0, math.sin(a) * r)
+				bots[i].Position = p + V(0, y0, 0)
+				tops[i].Position = p * 0.4 + V(0, y0 + o.height * 0.7, 0)
+			end
+		end)
+	end
+	return beams
+end
+
+export type OrbitOpts = {
+	n: number,
+	radius: number,
+	y: number, -- root-space Y of the orbit centre
+	color: Color3,
+	color2: Color3?,
+	size: number,
+	speed: number, -- rad/s
+	tilt: CFrame?, -- orbit plane rotation
+	bob: number?, -- vertical bob amplitude
+	trail: number?, -- trail width (nil = none)
+	life: number?, -- trail lifetime
+	shape: Enum.PartType?,
+	mat: Enum.Material?,
+}
+
+-- n glowing bodies orbiting the root, optionally with trails.
+function Blocks.orbiters(c: Ctx, o: OrbitOpts): { BasePart }
+	local parts: { BasePart } = {}
+	for i = 1, o.n do
+		local col = if o.color2 and i % 2 == 0 then o.color2 else o.color
+		local p = Core.part(c, V(o.size, o.size, o.size), col, o.mat, 0, o.shape or Enum.PartType.Ball)
+		if o.trail then
+			Core.trail(p, col, o.trail, o.life or 0.5, o.color2 or col)
+		end
+		parts[i] = p
+	end
+	local tilt = o.tilt or CFrame.identity
+	local bob = o.bob or 0
+	Core.on(c, function(t, _, root)
+		local base = root * CF(0, o.y, 0) * tilt
+		for i, p in parts do
+			local a = t * o.speed + (i - 1) / o.n * TAU
+			Core.put(p, base * CF(math.cos(a) * o.radius, math.sin(t * 1.3 + i * 1.7) * bob, math.sin(a) * o.radius))
+		end
+	end)
+	return parts
+end
+
+-- Particle emitter over a flat box at the soles (radius = half side).
+function Blocks.floorEmit(c: Ctx, radius: number, spec: Core.EmitSpec, y: number?): ParticleEmitter
+	local vol = Core.volume(c, V(radius * 2, 0.1, radius * 2), CF(0, (y or c.groundY) + 0.1, 0))
+	spec.shape = spec.shape or Enum.ParticleEmitterShape.Box
+	return Core.emit(vol, spec)
+end
+
+-- Trail between two points of a part (e.g. across a feather tip).
+function Blocks.tipTrail(part: BasePart, pa: Vector3, pb: Vector3, color: Color3, life: number, color2: Color3?): Trail
+	local a0 = Instance.new("Attachment")
+	a0.Position = pa
+	a0.Parent = part
+	local a1 = Instance.new("Attachment")
+	a1.Position = pb
+	a1.Parent = part
+	local tr = Instance.new("Trail")
+	tr.Attachment0 = a0
+	tr.Attachment1 = a1
+	tr.Color = if color2 then ColorSequence.new(color, color2) else ColorSequence.new(color)
+	tr.Transparency = NumberSequence.new(0.3, 1)
+	tr.Lifetime = life
+	tr.LightEmission = 1
+	tr.LightInfluence = 0
+	tr.FaceCamera = false
+	tr.Parent = part
+	return tr
+end
+
 return Blocks
