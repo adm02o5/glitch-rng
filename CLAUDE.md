@@ -7,6 +7,7 @@ Agents: at most 2 at a time, effort medium.
 ## Build
 - `./tools/check.sh` — luau-lsp type check (must be clean).
 - `./tools/build.sh` → `build/GlitchRNG.rbxlx`. Send that file to the user after every change (SendUserFile, attach).
+- Git: branch `glitch-rng`; commit after every round of changes (user asked "делай гиты").
 
 ## Layout
 - `src/shared/Config.lua` — ALL game data: palette, tiers (cutscene level 0..5), 40 auras (chance = 1 in N,
