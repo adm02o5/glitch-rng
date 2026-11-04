@@ -449,7 +449,14 @@ function Blocks.sigil(c: Ctx, o: SigilOpts): Sigil
 	end
 	local disc: BasePart? = nil
 	if o.glow then
-		disc = Core.part(c, V(0.05, R * 2.1, R * 2.1), o.glowColor or o.color, Enum.Material.Neon, o.glow, Enum.PartType.Cylinder)
+		disc = Core.part(
+			c,
+			V(0.05, R * 2.1, R * 2.1),
+			o.glowColor or o.color,
+			Enum.Material.Neon,
+			o.glow,
+			Enum.PartType.Cylinder
+		)
 	end
 	local spin = o.spin or 0.25
 	local ticks: { BasePart } = {}
@@ -473,7 +480,8 @@ function Blocks.sigil(c: Ctx, o: SigilOpts): Sigil
 	for i = 1, ns do
 		spA[i] = Core.att(c)
 		spB[i] = Core.att(c)
-		spokes[i] = Core.beam(c, spA[i], spB[i], col2, w * 0.7, { w1 = w * 0.25, segs = 1, tr = NumberSequence.new(0.25, 0.6) })
+		spokes[i] =
+			Core.beam(c, spA[i], spB[i], col2, w * 0.7, { w1 = w * 0.25, segs = 1, tr = NumberSequence.new(0.25, 0.6) })
 	end
 	local pulse = o.pulse
 	Core.on(c, function(t, _, root)

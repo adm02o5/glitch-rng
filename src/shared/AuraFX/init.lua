@@ -6,6 +6,9 @@
 --   AuraFX.Burst(position, auraId, scale?)         (one-shot reveal explosion, ~3 s)
 --   AuraFX.Has(auraId) -> boolean
 --
+-- Auras listed in AuraFX/Poses also pose the body (procedural Motor6D offsets on top of the
+-- walk / idle animation); levitating poses lift every root-anchored effect with the body.
+--
 -- Everything lives in a Folder "AuraFX" inside the character (one sub-folder per handle).
 -- Anchored parts are driven from one shared RenderStepped loop with Workspace:BulkMoveTo.
 
@@ -16,13 +19,15 @@ local AurasMid = require(script.AurasMid)
 local AurasHigh = require(script.AurasHigh)
 local Rigs = require(script.Rigs)
 local Burst = require(script.Burst)
+local AurasExtra = require(script.AurasExtra)
+local Poses = require(script.Poses)
 
 export type Handle = { Destroy: (self: Handle) -> () }
 
 local AuraFX = {}
 
 local builders: { [string]: (Core.Ctx) -> () } = {}
-for _, src in { AurasLow, AurasMid, AurasHigh } do
+for _, src in { AurasLow, AurasMid, AurasHigh, AurasExtra } do
 	for id, fn in src do
 		builders[id] = fn
 	end
@@ -51,20 +56,28 @@ local function attachWith(
 	c1: Color3,
 	c2: Color3,
 	tier: number,
-	build: (Core.Ctx) -> ()
+	build: (Core.Ctx) -> (),
+	poseId: string?
 ): Handle
 	local ctx: Core.Ctx? = nil
 	local dead = false
+	local stopPose: (() -> ())? = nil
+	local float = poseId ~= nil and Poses.lift(poseId) > 0
 
 	local function make()
 		if dead or ctx then
 			return
 		end
-		local c = Core.newCtx(character, name, c1, c2, tier)
+		local c = Core.newCtx(character, name, c1, c2, tier, float)
 		if not c then
 			return
 		end
 		ctx = c
+		if poseId and Poses.has(poseId) then
+			stopPose = Poses.start(character, poseId, function(h: number)
+				c.lift = h
+			end)
+		end
 		local ok, err = pcall(function()
 			build(c)
 		end)
@@ -89,6 +102,11 @@ local function attachWith(
 	return {
 		Destroy = function(_self: Handle)
 			dead = true
+			local sp = stopPose
+			if sp then
+				stopPose = nil
+				sp()
+			end
 			local c = ctx
 			if c then
 				Core.destroy(c)
@@ -107,7 +125,7 @@ function AuraFX.Attach(character: Model, auraId: string): Handle
 	if not aura or not build or typeof(character) ~= "Instance" then
 		return emptyHandle()
 	end
-	return attachWith(character, "Aura_" .. auraId, aura.color, aura.color2, tierIndex(aura.chance), build)
+	return attachWith(character, "Aura_" .. auraId, aura.color, aura.color2, tierIndex(aura.chance), build, auraId)
 end
 
 function AuraFX.AttachRig(character: Model, rigId: string): Handle

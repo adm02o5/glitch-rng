@@ -75,7 +75,17 @@ A.Pixel = function(c: Ctx)
 		frame[k] = Core.part(c, V(0.1, 0.05, 3.7), c.c1, NEON, 0.4)
 		corners[k] = Core.part(c, V(0.34, 0.12, 0.34), WHITE)
 	end
-	B.circle(c, { radius = 3, color = c.c2, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.55, n = 8 })
+	B.circle(c, {
+		radius = 3,
+		color = c.c2,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.55,
+		n = 8,
+		radiusFn = function(t)
+			return 3 * (1 + 0.035 * math.sin(t * 1.7 + 1))
+		end,
+	})
 	-- tiny pixel halo stepping around above the head
 	local halo: { BasePart } = {}
 	for k = 1, 6 do
@@ -174,7 +184,16 @@ A.Static = function(c: Ctx)
 			end,
 		})
 	end
-	B.circle(c, { radius = 2.9, color = c.c2, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.45 })
+	B.circle(c, {
+		radius = 2.9,
+		color = c.c2,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.45,
+		radiusFn = function(t)
+			return 2.9 * (1 + 0.035 * math.sin(t * 1.7 + 2))
+		end,
+	})
 	-- horizontal picture tear, always facing the camera
 	local tear = Core.part(c, V(4.2, 0.09, 0.02), WHITE, NEON, 1)
 	local tearY, tearUntil = 0, 0
@@ -462,8 +481,26 @@ A.Cookie = function(c: Ctx)
 			Core.emit(hexes[i][1], crumbs)
 		end
 	end
-	B.circle(c, { radius = R, color = c.c1, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.45 })
-	B.circle(c, { radius = R - 0.3, color = c.c2, width = 0.06, at = CF(0, g + 0.04, 0), tr = 0.5 })
+	B.circle(c, {
+		radius = R,
+		color = c.c1,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.45,
+		radiusFn = function(t)
+			return R * (1 + 0.035 * math.sin(t * 1.7 + 3))
+		end,
+	})
+	B.circle(c, {
+		radius = R - 0.3,
+		color = c.c2,
+		width = 0.06,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.5,
+		radiusFn = function(t)
+			return (R - 0.3) * (1 + 0.035 * math.sin(t * 1.7 + 4))
+		end,
+	})
 	Core.emit(Core.att(c, c.torso), {
 		tex = T.spark,
 		color = cs(WHITE, c.c1),
@@ -669,9 +706,7 @@ A.Firewall = function(c: Ctx)
 				age = 0
 			end
 			local f = age / e.life
-			local cf = root
-				* CF(math.cos(e.a) * R, g + 0.5 + f * 3.4, math.sin(e.a) * R)
-				* ANG(t * 2, t * 3, 0)
+			local cf = root * CF(math.cos(e.a) * R, g + 0.5 + f * 3.4, math.sin(e.a) * R) * ANG(t * 2, t * 3, 0)
 			B.putHex(e.hx, cf)
 			for _, p in e.hx do
 				p.Transparency = f
@@ -904,7 +939,16 @@ A.Proxy = function(c: Ctx)
 	local a0 = Core.att(c, nil, CF(0.5, c.chestY, 0))
 	local a1 = Core.att(c, nil, CF(off - 0.5, c.chestY, 0))
 	Core.beam(c, a0, a1, c.c1, 0.14, { tex = T.square, texLen = 0.45, texSpeed = 2, tr = ns(0.15), color2 = c.c2 })
-	B.circle(c, { radius = 1.5, color = c.c1, width = 0.12, at = CF(0, g + 0.04, 0), tr = 0.3 })
+	B.circle(c, {
+		radius = 1.5,
+		color = c.c1,
+		width = 0.12,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.3,
+		radiusFn = function(t)
+			return 1.5 * (1 + 0.035 * math.sin(t * 1.7 + 5))
+		end,
+	})
 	B.circle(c, {
 		radius = 1.5,
 		color = c.c1,
@@ -915,8 +959,7 @@ A.Proxy = function(c: Ctx)
 		end,
 	})
 	local ipAtt, ip = B.glyph(c, "127.0.0.1", c.c1, V2(2.8, 0.42), F.pixel, CF(off, c.topY + 0.95, 0), c.c2)
-	local tagAtt, tag =
-		B.glyph(c, "SPOOFED", c.c2:Lerp(c.c1, 0.5), V2(1.6, 0.28), F.tech, CF(off, c.topY + 0.55, 0))
+	local tagAtt, tag = B.glyph(c, "SPOOFED", c.c2:Lerp(c.c1, 0.5), V2(1.6, 0.28), F.tech, CF(off, c.topY + 0.55, 0))
 	local pa = Core.att(c, nil, CF(off, c.chestY, 0))
 	local psp = Core.emit(pa, {
 		tex = T.spark,
@@ -1117,7 +1160,7 @@ A.Overflow = function(c: Ctx)
 			return 3.4 + math.sin(t * 5) * 0.15
 		end,
 	})
-	local top = Core.att(c, c.head, CF(0, c.head.Size.Y / 2, 0))
+	local top = Core.att(c, c.head, CF(0, Core.headSize(c.head).Y / 2, 0))
 	Core.emit(top, {
 		tex = T.fireSpark,
 		color = cs(c.c2, c.c1),
@@ -1207,8 +1250,26 @@ A.Malware = function(c: Ctx)
 	local g = c.groundY
 	local PR = 2.7
 	local puddle = Core.part(c, V(0.04, PR * 2, PR * 2), c.c2:Lerp(c.c1, 0.35), NEON, 0.35, CYL)
-	B.circle(c, { radius = PR, color = c.c1, width = 0.14, at = CF(0, g + 0.04, 0), tr = 0.15 })
-	B.circle(c, { radius = PR + 0.8, color = c.c1, width = 0.06, at = CF(0, g + 0.04, 0), tr = 0.55 })
+	B.circle(c, {
+		radius = PR,
+		color = c.c1,
+		width = 0.14,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.15,
+		radiusFn = function(t)
+			return PR * (1 + 0.035 * math.sin(t * 1.7 + 6))
+		end,
+	})
+	B.circle(c, {
+		radius = PR + 0.8,
+		color = c.c1,
+		width = 0.06,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.55,
+		radiusFn = function(t)
+			return (PR + 0.8) * (1 + 0.035 * math.sin(t * 1.7 + 7))
+		end,
+	})
 	local pv = Core.volume(c, V(PR * 1.6, 0.1, PR * 1.6), CF(0, g + 0.05, 0))
 	Core.emit(pv, {
 		tex = T.smoke,

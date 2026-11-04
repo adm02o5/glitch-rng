@@ -275,10 +275,7 @@ A.Glitch = function(c: Ctx)
 			if bursting then
 				if rng:NextNumber() < 0.3 then
 					local a = rng:NextNumber() * TAU
-					Core.put(
-						bk,
-						root * CF(math.cos(a) * 1.3, g + 0.6 + rng:NextNumber() * h, math.sin(a) * 1.3)
-					)
+					Core.put(bk, root * CF(math.cos(a) * 1.3, g + 0.6 + rng:NextNumber() * h, math.sin(a) * 1.3))
 				end
 				bk.Transparency = 0
 			else
@@ -357,7 +354,7 @@ A.Trojan = function(c: Ctx)
 		end,
 	})
 	B.circle(c, { radius = 1.45, color = c.c1, width = 0.08, at = CF(0, yK - 0.1, 0), tr = 0.3 })
-	local headTop = Core.att(c, c.head, CF(0, c.head.Size.Y / 2, 0))
+	local headTop = Core.att(c, c.head, CF(0, Core.headSize(c.head).Y / 2, 0))
 	for k = 1, 4 do
 		local a = (k - 1) / 4 * TAU + math.pi / 4
 		local top = Core.att(c, nil, CF(math.cos(a) * 1.4, yK - 0.1, math.sin(a) * 1.4))
@@ -389,7 +386,16 @@ A.Trojan = function(c: Ctx)
 			return CF(0, g + 0.05, 0)
 		end,
 	})
-	B.circle(c, { radius = 3.1, color = c.c1, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.35 })
+	B.circle(c, {
+		radius = 3.1,
+		color = c.c1,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.35,
+		radiusFn = function(t)
+			return 3.1 * (1 + 0.035 * math.sin(t * 1.7 + 1))
+		end,
+	})
 	local torso = Core.att(c, c.torso)
 	local sparks = Core.emit(torso, {
 		tex = T.fireSpark,
@@ -443,7 +449,8 @@ A.Trojan = function(c: Ctx)
 		scan.Transparency = 0.3 + sy * 0.6
 		for i, gf in gifts do
 			local a = (i - 1) / 4 * TAU - t * 0.7
-			local cf = root * CF(math.cos(a) * 2.7, -0.1 + math.sin(t * 2 + i) * 0.2, math.sin(a) * 2.7)
+			local cf = root
+				* CF(math.cos(a) * 2.7, -0.1 + math.sin(t * 2 + i) * 0.2, math.sin(a) * 2.7)
 				* ANG(0.3, t * 1.2 + i, 0.2)
 			if gf.pop < t and rng:NextNumber() < 0.004 then
 				gf.pop = t + 0.5
@@ -788,7 +795,16 @@ A.Botnet = function(c: Ctx)
 	end
 	local cmd = Core.part(c, V(0.5, 0.5, 0.5), c.c1)
 	B.circle(c, { radius = 0.7, color = c.c1, width = 0.08, at = CF(0, c.topY + 1.1, 0), tr = 0.2 })
-	B.circle(c, { radius = 3.6, color = c.c1, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.45 })
+	B.circle(c, {
+		radius = 3.6,
+		color = c.c1,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.45,
+		radiusFn = function(t)
+			return 3.6 * (1 + 0.035 * math.sin(t * 1.7 + 2))
+		end,
+	})
 	Core.emit(headAtt, {
 		tex = T.square,
 		color = cs(c.c1),
@@ -890,8 +906,26 @@ A.Cryptic = function(c: Ctx)
 		end
 	end
 	-- floor cipher wheel
-	B.circle(c, { radius = 3.9, color = gold, width = 0.12, at = CF(0, g + 0.04, 0), tr = 0.3 })
-	B.circle(c, { radius = 3.3, color = deep, width = 0.07, at = CF(0, g + 0.04, 0), tr = 0.4 })
+	B.circle(c, {
+		radius = 3.9,
+		color = gold,
+		width = 0.12,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.3,
+		radiusFn = function(t)
+			return 3.9 * (1 + 0.035 * math.sin(t * 1.7 + 3))
+		end,
+	})
+	B.circle(c, {
+		radius = 3.3,
+		color = deep,
+		width = 0.07,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.4,
+		radiusFn = function(t)
+			return 3.3 * (1 + 0.035 * math.sin(t * 1.7 + 4))
+		end,
+	})
 	local wheel: { TextLabel } = {}
 	local wheelAtt: { Attachment } = {}
 	for i = 1, 12 do
@@ -996,7 +1030,16 @@ A.Rootkit = function(c: Ctx)
 		local poly = B.poly(c, pts, c.c1, 0.18, { w1 = 0.1, segs = 1, bright = 3 })
 		table.insert(cracks, { beams = poly.beams, off = rng:NextNumber() })
 	end
-	B.circle(c, { radius = 4.6, color = c.c1, width = 0.14, at = CF(0, g + 0.04, 0), tr = 0.3 })
+	B.circle(c, {
+		radius = 4.6,
+		color = c.c1,
+		width = 0.14,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.3,
+		radiusFn = function(t)
+			return 4.6 * (1 + 0.035 * math.sin(t * 1.7 + 5))
+		end,
+	})
 	type Tendril = { segs: { BasePart }, tip: BasePart, a: number, h: number, turn: number, off: number }
 	local tendrils: { Tendril } = {}
 	local NS = 7
@@ -1234,7 +1277,16 @@ A.Hologram = function(c: Ctx)
 			return CF(0, g + 0.16, 0)
 		end,
 	})
-	B.circle(c, { radius = 4.4, color = c.c1, width = 0.1, at = CF(0, g + 0.04, 0), tr = 0.4 })
+	B.circle(c, {
+		radius = 4.4,
+		color = c.c1,
+		width = 0.1,
+		at = CF(0, g + 0.04, 0),
+		tr = 0.4,
+		radiusFn = function(t)
+			return 4.4 * (1 + 0.035 * math.sin(t * 1.7 + 6))
+		end,
+	})
 	local lensAtt = Core.att(c, c.root, CF(0, g + 0.25, 0))
 	for k = 1, 8 do
 		local a = (k - 1) / 8 * TAU

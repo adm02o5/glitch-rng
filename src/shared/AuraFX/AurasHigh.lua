@@ -108,7 +108,10 @@ A.Mainframe = function(c: Ctx)
 		local up0, up1 = Core.att(c), Core.att(c)
 		racks[i] = {
 			body = body,
-			bars = { Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1), Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1) },
+			bars = {
+				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
+				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
+			},
 			leds = leds,
 			status = Core.part(c, V(0.14, 0.14, 0.05), c.c1),
 			a0 = a0,
@@ -117,7 +120,14 @@ A.Mainframe = function(c: Ctx)
 			up1 = up1,
 			pulse = Core.part(c, V(0.3, 0.3, 0.3), WHITE, NEON, 0, BALL),
 		}
-		Core.beam(c, a0, hubAtt, Color3.fromRGB(16, 22, 30), 0.2, { light = 0, bright = 1, c0 = 1.6, c1 = 1.6, segs = 16 })
+		Core.beam(
+			c,
+			a0,
+			hubAtt,
+			Color3.fromRGB(16, 22, 30),
+			0.2,
+			{ light = 0, bright = 1, c0 = 1.6, c1 = 1.6, segs = 16 }
+		)
 		Core.beam(
 			c,
 			a0n,
@@ -127,11 +137,30 @@ A.Mainframe = function(c: Ctx)
 			{ c0 = 1.6, c1 = 1.6, segs = 16, tex = T.square, texLen = 0.4, texSpeed = 3, zoff = 0.02 }
 		)
 		-- data uplink column above every rack
-		Core.beam(c, up0, up1, c.c1, 0.35, { w1 = 0.05, tr = ns(0.25, 1), tex = T.square, texLen = 0.8, texSpeed = 4, segs = 2 })
+		Core.beam(
+			c,
+			up0,
+			up1,
+			c.c1,
+			0.35,
+			{ w1 = 0.05, tr = ns(0.25, 1), tex = T.square, texLen = 0.8, texSpeed = 4, segs = 2 }
+		)
 	end
 	local hub = Core.part(c, V(0.9, 0.7, 0.3), Color3.fromRGB(20, 26, 36), METAL)
 	local hubStrip = Core.part(c, V(0.8, 0.08, 0.32), c.c1)
-	B.sigil(c, { radius = 5.6, color = c.c1, color2 = c.c2:Lerp(c.c1, 0.5), ticks = 16, spokes = 5, glow = 0.9, spin = 0.2 })
+	B.sigil(
+		c,
+		{
+			radius = 5.6,
+			color = c.c1,
+			color2 = c.c2:Lerp(c.c1, 0.5),
+			ticks = 16,
+			spokes = 5,
+			glow = 0.9,
+			spin = 0.2,
+			pulse = 2.6,
+		}
+	)
 	local _, title = B.glyph(c, "MAINFRAME://ONLINE", c.c1, V2(4.4, 0.55), F.tech, CF(0, c.topY + 1.5, 0), c.c2)
 	local back = Core.att(c, c.torso, CF(0, 0.1, c.torso.Size.Z / 2 + 0.3))
 	Core.emit(back, {
@@ -238,7 +267,10 @@ A.Quantum = function(c: Ctx)
 	for k = 1, 3 do
 		local col = if k == 2 then c.c2 else c.c1
 		B.circle(c, { radius = OR, color = col, width = 0.13, tr = 0.1, anchor = orbit(k), n = 10 })
-		B.circle(c, { radius = OR + 0.3, color = c.c1:Lerp(c.c2, 0.5), width = 0.04, tr = 0.55, anchor = orbit(k), n = 10 })
+		B.circle(
+			c,
+			{ radius = OR + 0.3, color = c.c1:Lerp(c.c2, 0.5), width = 0.04, tr = 0.55, anchor = orbit(k), n = 10 }
+		)
 		local core = Core.part(c, V(0.55, 0.55, 0.55), WHITE, NEON, 0, BALL)
 		Core.trail(core, c.c1, 0.5, 0.55, c.c2)
 		els[k] = { core = core, shell = Core.part(c, V(1.15, 1.15, 1.15), c.c1, FF, 0, BALL), k = k, skip = 0 }
@@ -290,7 +322,7 @@ A.Quantum = function(c: Ctx)
 			return CF(0, c.groundY + 0.5, 0)
 		end,
 	})
-	B.sigil(c, { radius = 6, color = c.c1, color2 = c.c2, rings = 2, glow = 0.9 })
+	B.sigil(c, { radius = 6, color = c.c1, color2 = c.c2, rings = 2, glow = 0.9, pulse = 3.0 })
 	local torso = Core.att(c, c.torso)
 	Core.emit(torso, {
 		tex = T.glow,
@@ -457,6 +489,7 @@ A.Overclocked = function(c: Ctx)
 		tickSize = V(0.35, 0.07, 0.22),
 		spin = 1.4,
 		glow = 0.88,
+		pulse = 3.4,
 	})
 	local torso = Core.att(c, c.torso)
 	Core.emit(torso, {
@@ -518,7 +551,8 @@ A.Overclocked = function(c: Ctx)
 		dir = Enum.NormalId.Back,
 		accel = V(0, -6, 0),
 	})
-	local _, temp = B.glyph(c, "TEMP 97C", c.c2, V2(2.8, 0.5), F.pixel, CF(0, c.topY + 1.6, 0), Color3.fromRGB(80, 20, 0))
+	local _, temp =
+		B.glyph(c, "TEMP 97C", c.c2, V2(2.8, 0.5), F.pixel, CF(0, c.topY + 1.6, 0), Color3.fromRGB(80, 20, 0))
 	local light = B.rootLight(c, c.c1, 2.6, 17)
 	Core.on(c, function(t, _, root)
 		local fan = root * fanL
@@ -639,7 +673,10 @@ A.NeuralLink = function(c: Ctx)
 			return CF(0, c.headY + 0.1, 0) * ANG(0.12, 0, 0)
 		end,
 	})
-	B.sigil(c, { radius = 5.2, color = c.c1, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.4 })
+	B.sigil(
+		c,
+		{ radius = 5.2, color = c.c1, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.4, pulse = 3.8 }
+	)
 	local headAtt = Core.att(c, c.head)
 	Core.emit(headAtt, {
 		tex = T.spark,
@@ -769,7 +806,10 @@ A.Sentinel = function(c: Ctx)
 		end,
 	})
 	B.circle(c, { radius = 1.6, color = gold, width = 0.08, tr = 0.3, at = CF(0, yE - 0.9, 0) })
-	B.sigil(c, { radius = 5.6, color = gold, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.3 })
+	B.sigil(
+		c,
+		{ radius = 5.6, color = gold, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.3, pulse = 2.6 }
+	)
 	Core.emit(eyeAtt, {
 		tex = T.spark,
 		color = cs(gold, WHITE),
@@ -891,7 +931,10 @@ A.Kernel = function(c: Ctx)
 	local inner = Core.part(c, V(0.55, 0.55, 0.55), WHITE, NEON, 0, BALL)
 	local shell = Core.part(c, V(1.9, 1.9, 1.9), c.c2, FF, 0, BALL)
 	B.pillar(c, { color = c.c1, color2 = c.c2, height = 45, width = 1.8, tr = 0.45, streams = 3, radius = 1.4 })
-	B.sigil(c, { radius = 7.2, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.3, pulse = 1.2 })
+	B.sigil(
+		c,
+		{ radius = 7.2, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.3, pulse = 1.2 }
+	)
 	Core.emit(coreAtt, {
 		tex = T.glow,
 		color = cs(c.c1, c.c2),
@@ -1120,7 +1163,8 @@ A.CyberSeraph = function(c: Ctx)
 			for j = 1, NF do
 				local f = (j - 1) / (NF - 1)
 				local L = sp.l0 + (sp.l1 - sp.l0) * f
-				local fp = Core.part(c, V(sp.w * (1 - f * 0.25), L, 0.08), WHITE:Lerp(c.c2, 0.15 + f * 0.75), NEON, 0.04)
+				local fp =
+					Core.part(c, V(sp.w * (1 - f * 0.25), L, 0.08), WHITE:Lerp(c.c2, 0.15 + f * 0.75), NEON, 0.04)
 				fs[j] = fp
 				if j == 1 then
 					local hw = sp.w / 2
@@ -1161,7 +1205,10 @@ A.CyberSeraph = function(c: Ctx)
 		code[i] = { att = att, lbl = lbl }
 	end
 	B.pillar(c, { color = WHITE, color2 = c.c2, height = 55, width = 3.4, tr = 0.6, streams = 3, radius = 1.6 })
-	B.sigil(c, { radius = 7, color = WHITE, color2 = c.c2, ticks = 16, spokes = 6, glow = 0.9, spin = 0.25 })
+	B.sigil(
+		c,
+		{ radius = 7, color = WHITE, color2 = c.c2, ticks = 16, spokes = 6, glow = 0.9, spin = 0.25, pulse = 3.0 }
+	)
 	-- falling light feathers from above
 	local sky = Core.volume(c, V(10, 1, 6), CF(0, c.topY + 6, 0.8))
 	Core.emit(sky, {
@@ -1275,7 +1322,15 @@ A.BlueScreen = function(c: Ctx)
 	local function bsod(part: BasePart, face: Enum.NormalId, pps: number): TextLabel
 		local sg = Core.surface(part, face, pps)
 		local bg = Core.frame(sg, c.c1, UDim2.fromScale(0, 0), UDim2.fromScale(1, 1))
-		Core.label(bg, ":(", WHITE, F.mono, UDim2.fromScale(0.06, 0.04), UDim2.fromScale(0.3, 0.38), Enum.TextXAlignment.Left)
+		Core.label(
+			bg,
+			":(",
+			WHITE,
+			F.mono,
+			UDim2.fromScale(0.06, 0.04),
+			UDim2.fromScale(0.3, 0.38),
+			Enum.TextXAlignment.Left
+		)
 		Core.label(
 			bg,
 			"Your PC ran into a problem and needs to restart.",
@@ -1365,7 +1420,8 @@ A.BlueScreen = function(c: Ctx)
 			UDim2.fromScale(0.7, 0.12),
 			Enum.TextXAlignment.Left
 		)
-		local ok = Core.frame(sg, Color3.fromRGB(200, 205, 215), UDim2.fromScale(0.7, 0.72), UDim2.fromScale(0.24, 0.18))
+		local ok =
+			Core.frame(sg, Color3.fromRGB(200, 205, 215), UDim2.fromScale(0.7, 0.72), UDim2.fromScale(0.24, 0.18))
 		Core.label(ok, "OK", Color3.fromRGB(20, 20, 30), F.mono, UDim2.fromScale(0, 0), UDim2.fromScale(1, 1))
 		pops[i] = {
 			win = win,
@@ -1383,9 +1439,13 @@ A.BlueScreen = function(c: Ctx)
 	type Px = { p: BasePart, cf: CFrame, nextT: number }
 	local pixels: { Px } = {}
 	for i = 1, 12 do
-		pixels[i] = { p = Core.part(c, V(0.4, 0.4, 0.4), if i % 3 == 0 then WHITE else c.c1), cf = CF(0, -50, 0), nextT = 0 }
+		pixels[i] =
+			{ p = Core.part(c, V(0.4, 0.4, 0.4), if i % 3 == 0 then WHITE else c.c1), cf = CF(0, -50, 0), nextT = 0 }
 	end
-	B.sigil(c, { radius = 6.6, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.35 })
+	B.sigil(
+		c,
+		{ radius = 6.6, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.35, pulse = 3.4 }
+	)
 	local torso = Core.att(c, c.torso)
 	Core.emit(torso, {
 		tex = T.square,
@@ -1455,7 +1515,8 @@ A.BlueScreen = function(c: Ctx)
 				age = 0
 				local a = rng:NextNumber() * TAU
 				local r = 3 + rng:NextNumber() * 1.6
-				p.cf = outward(a, r, c.chestY - 0.2 + rng:NextNumber() * 2.4) * ANG(0, 0, (rng:NextNumber() - 0.5) * 0.3)
+				p.cf = outward(a, r, c.chestY - 0.2 + rng:NextNumber() * 2.4)
+					* ANG(0, 0, (rng:NextNumber() - 0.5) * 0.3)
 			end
 			local s
 			if age < 0 or age > p.life then
@@ -1936,7 +1997,7 @@ A.EventHorizon = function(c: Ctx)
 			end,
 		})
 	end
-	B.sigil(c, { radius = 9.5, color = c.c1, color2 = ember, rings = 2, glow = 0.9 })
+	B.sigil(c, { radius = 9.5, color = c.c1, color2 = ember, rings = 2, glow = 0.9, pulse = 3.8 })
 	local vol = Core.volume(c, V(16, 16, 16), CF(O))
 	Core.emit(vol, {
 		tex = T.spark,
@@ -2287,7 +2348,10 @@ A.Singularity = function(c: Ctx)
 			return CF(0, c.groundY + 0.05, 0)
 		end,
 	})
-	B.sigil(c, { radius = 13, color = WHITE, color2 = c.c2, rings = 4, spokes = 12, glow = 0.9, spin = 0.12, pulse = 3.5 })
+	B.sigil(
+		c,
+		{ radius = 13, color = WHITE, color2 = c.c2, rings = 4, spokes = 12, glow = 0.9, spin = 0.12, pulse = 3.5 }
+	)
 	B.orbiters(c, {
 		n = 4,
 		radius = 7.5,
@@ -2672,7 +2736,8 @@ A.Redacted = function(c: Ctx)
 			tilt = (rng:NextNumber() - 0.5) * 0.6,
 		}
 	end
-	local hw = c.head.Size.X * 1.15
+	local hsz = Core.headSize(c.head)
+	local hw = hsz.X * 1.15
 	local faceBar = Core.part(c, V(hw, 0.28, 0.06), ink, SMOOTH)
 	local faceEdge = Core.part(c, V(hw, 0.03, 0.07), red)
 	-- giant censor bar hanging in the sky, turned to the camera
@@ -2852,7 +2917,7 @@ A.Redacted = function(c: Ctx)
 			Core.put(b.p, cf)
 			Core.put(b.edge, cf * CF(0, -0.31, 0))
 		end
-		local hcf = c.head.CFrame * CF(0, 0.1, -c.head.Size.Z / 2 - 0.04)
+		local hcf = c.head.CFrame * CF(0, 0.1, -hsz.Z / 2 - 0.04)
 		Core.put(faceBar, hcf)
 		Core.put(faceEdge, hcf * CF(0, -0.155, 0))
 		local skyPos = (root * CF(0, c.topY + 5 + math.sin(t * 0.7) * 0.3, 0)).Position

@@ -11,6 +11,8 @@ local Workspace = game:GetService("Workspace")
 
 local Core = {}
 
+local V3 = Vector3.new
+
 Core.TAU = math.pi * 2
 
 Core.TEX = {
@@ -45,7 +47,10 @@ export type History = {
 export type Ctx = {
 	char: Model,
 	folder: Folder,
-	root: BasePart,
+	root: BasePart, -- HumanoidRootPart, or the LiftRoot proxy for levitating auras
+	realRoot: BasePart, -- the actual HumanoidRootPart
+	lift: number, -- current levitation (root-space Y) applied by AuraFX/Poses
+	proxy: BasePart?, -- anchored LiftRoot following realRoot * (0, lift, 0)
 	torso: BasePart,
 	lower: BasePart,
 	head: BasePart,
@@ -249,7 +254,19 @@ function Core.bodyPart(char: Model, ...: string): BasePart?
 	return nil
 end
 
-function Core.newCtx(char: Model, name: string, c1: Color3, c2: Color3, tier: number): Ctx?
+-- Visual size of the head (R6 heads are 2x1x1 parts drawn by a 1.25-scale head mesh).
+function Core.headSize(head: BasePart): Vector3
+	local m = head:FindFirstChildWhichIsA("SpecialMesh")
+	if m and m.MeshType == Enum.MeshType.Head then
+		local s = head.Size.Y
+		return V3(m.Scale.X * s, m.Scale.Y * s, m.Scale.Z * s)
+	end
+	return head.Size
+end
+
+-- `float`: the aura's pose levitates the body, so everything built on c.root rides an
+-- anchored proxy ("LiftRoot") that follows the HumanoidRootPart raised by c.lift.
+function Core.newCtx(char: Model, name: string, c1: Color3, c2: Color3, tier: number, float: boolean?): Ctx?
 	local root = Core.bodyPart(char, "HumanoidRootPart")
 	local head = Core.bodyPart(char, "Head")
 	if not root or not head then
@@ -304,10 +321,30 @@ function Core.newCtx(char: Model, name: string, c1: Color3, c2: Color3, tier: nu
 		end
 	end
 
+	local proxy: BasePart? = nil
+	if float then
+		local p = Instance.new("Part")
+		p.Name = "LiftRoot"
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Locked = true
+		p.Transparency = 1
+		p.Size = root.Size
+		p.CFrame = root.CFrame
+		p.Parent = folder
+		proxy = p
+	end
+
 	local c: Ctx = {
 		char = char,
 		folder = folder,
-		root = root,
+		root = proxy or root,
+		realRoot = root,
+		lift = 0,
+		proxy = proxy,
 		torso = torso,
 		lower = lower,
 		head = head,
@@ -316,7 +353,7 @@ function Core.newCtx(char: Model, name: string, c1: Color3, c2: Color3, tier: nu
 		groundY = groundY,
 		chestY = chestY,
 		headY = headY,
-		topY = headY + head.Size.Y / 2,
+		topY = headY + Core.headSize(head).Y / 2,
 		c1 = c1,
 		c2 = c2,
 		tier = tier,
@@ -351,13 +388,18 @@ function Core.start(c: Ctx)
 		if not c.alive then
 			return false
 		end
-		local root = c.root
+		local root = c.realRoot
 		if root.Parent == nil or c.char.Parent == nil then
 			Core.destroy(c)
 			return false
 		end
 		frameN += 1
 		local rcf = root.CFrame
+		local proxy = c.proxy
+		if proxy then
+			rcf *= CFrame.new(0, c.lift, 0)
+			proxy.CFrame = rcf
+		end
 		local cam = Workspace.CurrentCamera
 		if cam and (cam.CFrame.Position - rcf.Position).Magnitude > 280 and (frameN + c.phase) % 8 ~= 0 then
 			return true -- far away: refresh rarely

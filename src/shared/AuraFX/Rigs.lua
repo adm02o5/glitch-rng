@@ -29,6 +29,7 @@ type Rig = {
 	armOff: CFrame, -- wrist frame relative to arm part
 	handOff: CFrame, -- wrist frame relative to hand part
 	rw: number, -- forearm radius
+	hw: number, -- half thickness of the hand (back of the hand at +hw, palm at -hw)
 	hl: number, -- hand length below the wrist
 	pins: { { p: BasePart, cf: CFrame, hand: boolean } },
 }
@@ -46,6 +47,9 @@ local function setup(c: Ctx): Rig?
 		armOff = if r15 then CF(0, -arm.Size.Y / 2, 0) else CF(0, -0.55, 0),
 		handOff = if r15 then CF(0, hand.Size.Y / 2, 0) else CF(0, -0.55, 0),
 		rw = math.max(arm.Size.X, arm.Size.Z) / 2,
+		-- R6: the "hand" is the bottom of the 1-stud-thick arm block, so hand gear must sit
+		-- outside its full half-width or it disappears inside the arm
+		hw = if r15 then hand.Size.X / 2 else arm.Size.X / 2,
 		hl = if r15 then hand.Size.Y else 0.45,
 		pins = {},
 	}
@@ -266,7 +270,7 @@ Rigs.Overclocker = function(c: Ctx)
 			CF(rig.rw + 0.17, 0.18 + i * 0.11, 0)
 		)
 	end
-	local fanC = CF(rig.rw * 0.6 + 0.12, -rig.hl * 0.5, 0)
+	local fanC = CF(rig.hw + 0.1, -rig.hl * 0.5, 0)
 	for i = 1, 6 do
 		local a = (i - 1) / 6 * TAU
 		pin(rig, Core.part(c, V(0.06, 0.06, 0.2), SHELL2, METAL), fanC * ANG(a, 0, 0) * CF(0, 0.26, 0), true)
@@ -420,11 +424,11 @@ Rigs.KernelCore = function(c: Ctx)
 	for k = -1, 1 do
 		pin(rig, Core.part(c, V(0.04, 0.9, 0.05), col), CF(rig.rw + 0.17, 0.5, k * 0.15))
 	end
-	local hx = rig.rw * 0.55 + 0.1
+	local hx = rig.hw + 0.06
 	for k = 0, 3 do
 		local z = -0.3 + k * 0.2
 		pin(rig, Core.part(c, V(0.12, 0.12, 0.16), SHELL2, METAL), CF(hx - 0.05, -rig.hl - 0.04, z), true)
-		pin(rig, Core.part(c, V(0.035, 0.5, 0.05), col), CF(hx * 0.4, -rig.hl - 0.32, z) * ANG(0, 0, -0.18), true)
+		pin(rig, Core.part(c, V(0.035, 0.5, 0.05), col), CF(rig.hw * 0.35, -rig.hl - 0.32, z) * ANG(0, 0, -0.18), true)
 	end
 	local coreC = CF(hx + 0.05, -rig.hl * 0.45, 0)
 	local core = Core.part(c, V(0.34, 0.34, 0.34), col, NEON, 0, BALL)
@@ -474,6 +478,374 @@ Rigs.KernelCore = function(c: Ctx)
 	end)
 end
 
+-- street-built forearm deck: taped straps, glowing key grid, flip-up screen, ribbon cables
+-- to the knuckles, swaying whip antenna and a loose wire that spits sparks
+Rigs.Cyberdeck = function(c: Ctx)
+	local rig = setup(c)
+	if not rig then
+		return
+	end
+	local col = c.c1
+	local tape = Color3.fromRGB(92, 94, 104)
+	local green = Color3.fromRGB(80, 255, 140)
+	band(c, rig, 8, 0.12, 0.18, 0.08, SHELL, SMOOTH)
+	band(c, rig, 8, 0.92, 0.18, 0.08, SHELL, SMOOTH)
+	seam(c, rig, 0.02, col, 0.1)
+	-- duct tape wrapped crookedly over the straps
+	for i = 1, 6 do
+		local a = (i - 1) / 6 * TAU
+		local strip = Core.part(c, V(0.03, 0.2, 0.3), tape, Enum.Material.Fabric)
+		pin(rig, strip, CF(0, 0.78, 0) * ANG(0, -a, 0.12) * CF(rig.rw + 0.115, 0, 0))
+	end
+	local x = rig.rw + 0.08
+	local deckC = CF(x, 0.52, 0)
+	pin(rig, Core.part(c, V(0.1, 0.84, 0.64), Color3.fromRGB(22, 10, 26), SMOOTH), deckC)
+	-- chunky bumper corners (it has been dropped a lot)
+	for sy = -1, 1, 2 do
+		for sz = -1, 1, 2 do
+			pin(rig, Core.part(c, V(0.14, 0.12, 0.12), SHELL2, METAL), deckC * CF(0.01, sy * 0.38, sz * 0.28))
+		end
+	end
+	pin(rig, Core.part(c, V(0.11, 0.84, 0.03), col), deckC * CF(0, 0, 0.33))
+	pin(rig, Core.part(c, V(0.11, 0.84, 0.03), col), deckC * CF(0, 0, -0.33))
+	-- 5 x 3 key grid
+	local keys: { BasePart } = {}
+	for r = 0, 4 do
+		for k = 0, 2 do
+			local p = Core.part(c, V(0.035, 0.1, 0.14), col)
+			pin(rig, p, deckC * CF(0.065, -0.3 + r * 0.13, -0.17 + k * 0.17))
+			table.insert(keys, p)
+		end
+	end
+	-- flip-up screen on a hinge at the elbow end of the deck
+	local hinge = deckC * CF(0.07, 0.42, 0)
+	pin(rig, Core.part(c, V(0.06, 0.06, 0.6), SHELL2, METAL, 0, CYL), hinge * ANG(0, math.pi / 2, 0))
+	local lid = Core.part(c, V(0.05, 0.56, 0.62), SHELL, SMOOTH)
+	local glass = Core.part(c, V(0.02, 0.48, 0.54), Color3.fromRGB(14, 4, 18), SMOOTH)
+	local sg = Core.surface(glass, Enum.NormalId.Right, 220)
+	local lines: { TextLabel } = {}
+	for i = 1, 5 do
+		lines[i] = Core.label(
+			sg,
+			"",
+			if i == 5 then WHITE else col,
+			F.mono,
+			UDim2.fromScale(0.05, 0.04 + (i - 1) * 0.18),
+			UDim2.fromScale(0.9, 0.16),
+			Enum.TextXAlignment.Left
+		)
+	end
+	local luckBar = Core.frame(sg, green, UDim2.fromScale(0.05, 0.93), UDim2.fromScale(0.5, 0.04))
+	-- ribbon cables from the deck to the knuckles (scrolling data texture)
+	for k = -1, 1, 2 do
+		local a0 = Core.att(c, rig.arm, rig.armOff * deckC * CF(0.04, -0.42, k * 0.18))
+		local a1 = Core.att(c, rig.hand, rig.handOff * CF(rig.hw + 0.04, -rig.hl + 0.05, k * 0.2))
+		Core.beam(
+			c,
+			a0,
+			a1,
+			col,
+			0.07,
+			{ w1 = 0.05, c0 = 0.15, c1 = -0.1, tex = T.square, texLen = 0.15, texSpeed = -2, segs = 6 }
+		)
+		pin(rig, Core.part(c, V(0.08, 0.06, 0.12), SHELL2, METAL), CF(rig.hw + 0.05, -rig.hl + 0.05, k * 0.2), true)
+	end
+	-- coiled jack cable looping from the deck side back toward the elbow
+	local j0 = Core.att(c, rig.arm, rig.armOff * deckC * CF(0, 0.2, 0.34))
+	local j1 = Core.att(c, rig.arm, rig.armOff * CF(rig.rw * 0.3, 1.05, rig.rw + 0.05))
+	Core.beam(c, j0, j1, Color3.fromRGB(40, 40, 50), 0.06, { c0 = 0.5, c1 = 0.4, segs = 10, light = 0, bright = 1 })
+	Core.beam(
+		c,
+		j0,
+		j1,
+		col,
+		0.02,
+		{ c0 = 0.5, c1 = 0.4, segs = 10, tex = T.square, texLen = 0.3, texSpeed = 1.5, zoff = 0.02 }
+	)
+	-- whip antenna with a blinking tip
+	local antBase = deckC * CF(0.06, 0.38, -0.28)
+	pin(rig, Core.part(c, V(0.08, 0.1, 0.08), SHELL2, METAL), antBase)
+	local ant = Core.part(c, V(0.025, 0.8, 0.025), SHELL2, METAL)
+	local antTip = Core.part(c, V(0.07, 0.07, 0.07), col, NEON, 0, BALL)
+	-- the loose wire
+	local wireA = Core.att(c, rig.arm, rig.armOff * deckC * CF(0.05, -0.1, 0.36))
+	local wireB = Core.att(c, rig.arm, rig.armOff * deckC * CF(0.2, -0.3, 0.5))
+	Core.beam(c, wireA, wireB, col:Lerp(WHITE, 0.4), 0.025, { c0 = 0.2, c1 = 0.1, segs = 5 })
+	local sparks = Core.emit(wireB, {
+		tex = T.spark,
+		color = cs(WHITE, col),
+		size = ns(0.14, 0),
+		rate = 0,
+		life = nr(0.2, 0.45),
+		speed = nr(1.5, 3),
+		spread = V2(180, 180),
+		accel = V(0, -8, 0),
+		bright = 3,
+	})
+	local da = Core.att(c, rig.arm, rig.armOff * deckC * CF(0.25, 0, 0))
+	Core.emit(da, {
+		tex = T.square,
+		color = cs(col, WHITE),
+		size = ns(0.06, 0),
+		rate = 6,
+		life = nr(0.4, 0.8),
+		speed = nr(0.4, 0.9),
+		spread = V2(60, 60),
+		dir = Enum.NormalId.Right,
+		rot = nr(0, 0),
+	})
+	local light = Core.light(da, col, 1, 7)
+	local nextL, nextK, nextSpark = 0, 0, 0
+	local cmds = { "ssh root@", "> rng.seed", "inject luck", "ping fate", "sudo roll", "nmap dice", "./crack" }
+	run(c, rig, function(t, W)
+		if t >= nextL then
+			nextL = t + 0.22
+			for i = 1, 3 do
+				lines[i].Text = lines[i + 1].Text
+			end
+			lines[4].Text = if c.rng:NextNumber() < 0.4 then Core.pick(cmds, c.rng) else Core.hex(6, c.rng)
+			local p = 0.45 + 0.4 * Core.pulse(t, 6)
+			lines[5].Text = string.format("LUCK +50%%  %s", if (t % 1) < 0.5 then "_" else " ")
+			luckBar.Size = UDim2.fromScale(0.9 * p, 0.04)
+		end
+		if t >= nextK then
+			-- typing: a couple of keys flash at a time
+			nextK = t + 0.07
+			for _, k in keys do
+				k.Transparency = 0.1
+				k.Color = col
+			end
+			for _ = 1, 2 do
+				local k = Core.pick(keys, c.rng)
+				k.Color = WHITE
+				k.Transparency = 0
+			end
+		end
+		if t >= nextSpark then
+			nextSpark = t + 0.8 + c.rng:NextNumber() * 2.2
+			sparks:Emit(c.rng:NextInteger(4, 9))
+		end
+		local tilt = 0.95 + math.sin(t * 0.8) * 0.06
+		local lcf = W * hinge * ANG(0, 0, -tilt) * CF(0.03, 0.29, 0)
+		Core.put(lid, lcf)
+		Core.put(glass, lcf * CF(0.03, 0, 0))
+		local acf = W * antBase * ANG(math.sin(t * 2.3) * 0.12, 0, 0.35 + math.sin(t * 1.7) * 0.1) * CF(0, 0.42, 0)
+		Core.put(ant, acf)
+		Core.put(antTip, acf * CF(0, 0.42, 0))
+		antTip.Transparency = if (t % 1.1) < 0.12 or (t % 1.1 > 0.25 and t % 1.1 < 0.35) then 0 else 0.6
+		light.Brightness = 0.8 + Core.pulse(t, 0.9) * 0.5
+	end)
+end
+
+-- ethereal glove: translucent articulated fingers, rune cuff, fingertip wisps, a fingerprint
+-- whorl that keeps erasing itself, a lagging afterimage and periodic phase-outs
+Rigs.GhostGlove = function(c: Ctx)
+	local rig = setup(c)
+	if not rig then
+		return
+	end
+	local col = c.c1
+	local ice = Color3.fromRGB(140, 200, 255)
+	local GLASS = Enum.Material.Glass
+	-- cuff: glass plates with glowing seams and a rotating rune ring
+	band(c, rig, 10, 0.24, 0.34, 0.08, col:Lerp(ice, 0.3), GLASS)
+	seam(c, rig, 0.05, col, 0.1)
+	seam(c, rig, 0.43, ice, 0.1)
+	for k = 1, 2 do
+		B.circle(c, {
+			radius = rig.rw + 0.2 + k * 0.06,
+			color = if k == 1 then col else ice,
+			width = 0.03,
+			n = 6,
+			parent = rig.arm,
+			tr = 0.2,
+			anchor = function(t)
+				return rig.armOff * CF(0, 0.24, 0) * ANG(math.sin(t * 0.9 + k) * 0.25, t * (k == 1 and 1.2 or -0.8), 0)
+			end,
+		})
+	end
+	local runes: { Attachment } = {}
+	local runeL: { TextLabel } = {}
+	local glyphs = { "#", "%", "&", "?", "@", "*" }
+	for i = 1, 6 do
+		local a = Core.att(c, rig.arm)
+		local _, l = Core.glyph(c, a, glyphs[i], col, V2(0.16, 0.16), F.pixel)
+		runes[i] = a
+		runeL[i] = l
+	end
+	-- hand shell (back plate) + palm whorl
+	local hx = rig.hw + 0.02
+	local plateC = CF(hx, -rig.hl * 0.5, 0)
+	local shell: { BasePart } = {}
+	local sp = Core.part(c, V(0.1, rig.hl + 0.1, 0.62), col, GLASS, 0.35)
+	pin(rig, sp, plateC, true)
+	table.insert(shell, sp)
+	local ff = Core.part(c, V(0.12, rig.hl + 0.14, 0.66), ice, FF, 0)
+	pin(rig, ff, plateC, true)
+	for k = -1, 1 do
+		local vein = Core.part(c, V(0.02, rig.hl * 0.85, 0.025), WHITE)
+		pin(rig, vein, plateC * CF(0.055, 0, k * 0.15), true)
+		table.insert(shell, vein)
+	end
+	local palmC = CF(-(rig.hw + 0.03), -rig.hl * 0.5, 0)
+	local whorls: { B.Circle } = {}
+	for k = 1, 3 do
+		whorls[k] = B.circle(c, {
+			radius = 0.06 + k * 0.06,
+			color = if k % 2 == 0 then ice else col,
+			width = 0.018,
+			n = 4,
+			parent = rig.hand,
+			anchor = function(t)
+				return rig.handOff * palmC * ANG(0, 0, math.pi / 2) * ANG(0, t * (0.6 + k * 0.3), 0)
+			end,
+		})
+	end
+	-- fingers (2 segments each) + thumb, translucent; tips are neon wisps with trails
+	type Fing = { a: BasePart, b: BasePart, tip: BasePart, z: number, ph: number }
+	local fingers: { Fing } = {}
+	for f = 0, 3 do
+		local tip = Core.part(c, V(0.08, 0.08, 0.08), WHITE, NEON, 0, BALL)
+		Core.trail(tip, col, 0.05, 0.35, ice)
+		fingers[f + 1] = {
+			a = Core.part(c, V(0.1, 0.24, 0.1), col, GLASS, 0.3),
+			b = Core.part(c, V(0.09, 0.22, 0.09), col, GLASS, 0.4),
+			tip = tip,
+			z = -0.27 + f * 0.18,
+			ph = f * 0.7,
+		}
+	end
+	local thumb =
+		{ Core.part(c, V(0.1, 0.22, 0.1), col, GLASS, 0.3), Core.part(c, V(0.09, 0.2, 0.09), col, GLASS, 0.4) }
+	local thumbTip = Core.part(c, V(0.08, 0.08, 0.08), WHITE, NEON, 0, BALL)
+	Core.trail(thumbTip, col, 0.05, 0.35, ice)
+	-- afterimage: ghost tips + ghost shell trailing 0.15 s behind
+	local echoTips: { BasePart } = {}
+	for i = 1, 5 do
+		echoTips[i] = Core.part(c, V(0.07, 0.07, 0.07), ice, NEON, 0.5, BALL)
+	end
+	local echoShell = Core.part(c, V(0.1, rig.hl + 0.1, 0.62), ice, FF, 0.2)
+	local hist: { { t: number, cf: { CFrame } } } = {}
+	-- will-o-wisps orbiting the hand in a figure eight
+	local wisps: { BasePart } = {}
+	for i = 1, 3 do
+		local w = Core.part(c, V(0.1, 0.1, 0.1), if i == 2 then ice else WHITE, NEON, 0, BALL)
+		Core.trail(w, col, 0.07, 0.5, ice)
+		wisps[i] = w
+	end
+	local ha = Core.att(c, rig.hand, rig.handOff * CF(0, -rig.hl * 0.6, 0))
+	Core.emit(ha, {
+		tex = T.smoke,
+		color = cs(col, ice),
+		size = ns(0.3, 0.9),
+		transp = ns(0.8, 1),
+		rate = 6,
+		life = nr(0.8, 1.4),
+		speed = nr(0.2, 0.5),
+		spread = V2(180, 180),
+		accel = V(0, 0.6, 0),
+		rotSpeed = nr(-40, 40),
+		light = 0.6,
+	})
+	Core.emit(ha, {
+		tex = T.spark,
+		color = cs(WHITE, ice),
+		size = ns(0, 0.14, 0),
+		rate = 7,
+		life = nr(0.6, 1),
+		speed = nr(0.3, 0.7),
+		spread = V2(180, 180),
+	})
+	local phaseBurst = Core.emit(ha, {
+		tex = T.glow,
+		color = cs(WHITE, col),
+		size = ns(0.4, 1.4),
+		transp = ns(0.3, 1),
+		rate = 0,
+		life = nr(0.3, 0.5),
+		locked = true,
+	})
+	local noGui, noPrint = Core.glyph(c, ha, "NO PRINTS", ice, V2(1.1, 0.2), F.mono)
+	noGui.StudsOffset = Vector3.new(0, 0.5, 0)
+	local light = Core.light(ha, col, 1.2, 8)
+	local phaseUntil = 0
+	local nextPhase = 2
+	local wasPhasing = false
+	run(c, rig, function(t, _, H)
+		-- phase out: everything fades for a moment, then snaps back with a flash
+		if t >= nextPhase then
+			nextPhase = t + 4 + c.rng:NextNumber() * 3
+			phaseUntil = t + 0.45
+		end
+		local phasing = t < phaseUntil
+		if wasPhasing and not phasing then
+			phaseBurst:Emit(3)
+		end
+		wasPhasing = phasing
+		local fade = if phasing then 0.85 else 0.25 + 0.15 * Core.pulse(t, 2.6)
+		local cfs: { CFrame } = {}
+		for i, fg in fingers do
+			local curl = 0.2 + math.sin(t * 1.3 + fg.ph) * 0.18
+			local base = H * CF(0.02, -rig.hl, fg.z) * ANG(0, 0, -curl)
+			local mid = base * CF(0, -0.24, 0) * ANG(0, 0, -curl * 1.2)
+			Core.put(fg.a, base * CF(0, -0.12, 0))
+			Core.put(fg.b, mid * CF(0, -0.11, 0))
+			local tcf = mid * CF(0, -0.25, 0)
+			Core.put(fg.tip, tcf)
+			cfs[i] = tcf
+			fg.a.Transparency = fade
+			fg.b.Transparency = math.min(1, fade + 0.1)
+			fg.tip.Transparency = if phasing then 0.8 else 0
+		end
+		local tb = H * CF(-0.05, -rig.hl * 0.4, -0.38) * ANG(0.6 + math.sin(t * 0.9) * 0.1, 0, 0)
+		Core.put(thumb[1], tb * CF(0, -0.11, 0))
+		local tm = tb * CF(0, -0.22, 0) * ANG(0.3, 0, 0)
+		Core.put(thumb[2], tm * CF(0, -0.1, 0))
+		Core.put(thumbTip, tm * CF(0, -0.22, 0))
+		cfs[5] = tm * CF(0, -0.22, 0)
+		thumb[1].Transparency = fade
+		thumb[2].Transparency = math.min(1, fade + 0.1)
+		for _, p in shell do
+			p.Transparency = math.min(1, fade + 0.1)
+		end
+		ff.Transparency = if phasing then 0.9 else 0.1 + 0.2 * Core.pulse(t, 1.8)
+		-- afterimage from ~0.15 s ago
+		cfs[6] = H * plateC
+		table.insert(hist, 1, { t = t, cf = cfs })
+		while #hist > 2 and hist[#hist].t < t - 0.2 do
+			table.remove(hist)
+		end
+		local old = hist[#hist]
+		for i, e in echoTips do
+			Core.put(e, old.cf[i])
+			e.Transparency = if phasing then 0.2 else 0.55
+		end
+		Core.put(echoShell, old.cf[6])
+		echoShell.Transparency = if phasing then 0.3 else 0.75
+		for i, w in wisps do
+			local a = t * 1.8 + (i - 1) / 3 * TAU
+			Core.put(
+				w,
+				H * CF(0.1, -rig.hl * 0.5, 0) * CF(math.sin(a) * 0.45, math.sin(a * 2) * 0.25, math.cos(a) * 0.55)
+			)
+		end
+		for i, a in runes do
+			local ang = t * 1.2 + (i - 1) / 6 * TAU
+			local r = rig.rw + 0.32
+			a.CFrame = rig.armOff * CF(math.cos(ang) * r, 0.24 + math.sin(t * 2 + i) * 0.05, math.sin(ang) * r)
+			runeL[i].TextTransparency = if phasing then 0.8 else 0.1
+		end
+		-- whorl rings fade in, then dissolve outward (no fingerprints left behind)
+		local wph = (t % 3) / 3
+		for k, w in ipairs(whorls) do
+			local tr = if wph < 0.5 then 1 - wph * 2 * 0.8 else 0.2 + (wph - 0.5) * 2 * 0.8 * (1 + k * 0.1)
+			B.setBeamsTransparency(w.beams, math.clamp(tr, 0, 1))
+		end
+		noPrint.TextTransparency = if wph > 0.85 then 0.1 else 1
+		light.Brightness = if phasing then 0.3 else 1 + Core.pulse(t, 2.6) * 0.6
+	end)
+end
+
 -- full glove: articulated fingers, circuit lines, holo world-globe above the palm
 Rigs.ArchitectGlove = function(c: Ctx)
 	local rig = setup(c)
@@ -488,7 +860,7 @@ Rigs.ArchitectGlove = function(c: Ctx)
 		pin(rig, Core.part(c, V(0.03, 0.8, 0.04), col), CF(rig.rw + 0.12, 0.85, k * 0.14))
 	end
 	band(c, rig, 8, 1.1, 0.1, 0.08, SHELL2, METAL, col)
-	local hx = rig.rw * 0.55 + 0.04
+	local hx = rig.hw + 0.02
 	local plateC = CF(hx, -rig.hl * 0.5, 0)
 	pin(rig, Core.part(c, V(0.12, rig.hl + 0.1, 0.6), SHELL, METAL), plateC, true)
 	for k = -1, 1 do
