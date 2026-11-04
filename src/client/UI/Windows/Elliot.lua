@@ -1,5 +1,5 @@
 --!strict
--- ELLIOT (NPC): typed dialogue line, current quest with progress + claim, and the black-market stall.
+-- NULL (NPC): typed dialogue line, current quest with progress + claim, and the black-market stall.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -16,7 +16,7 @@ local P = Kit.P
 local new = Kit.new
 
 local LINES = {
-	"Hello, friend.",
+	"Connection established.",
 	"The odds are just code. And code can be rewritten.",
 	"Everyone rolls. Few understand the pattern.",
 	"I don't sell luck. I sell exploits.",
@@ -26,7 +26,7 @@ local LINES = {
 }
 
 return function()
-	local win = Kit.window("ELLIOT", "// encrypted contact · quests & black market", Vector2.new(860, 540), P.Lime)
+	local win = Kit.window("NULL", "// encrypted contact · quests & black market", Vector2.new(860, 540), P.Lime)
 	local tab = "Quest"
 	local lineIdx = 0
 
@@ -42,7 +42,7 @@ return function()
 		Position = UDim2.fromOffset(0, 30),
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
-	Kit.label(portrait, "ELLIOT", 14, {
+	Kit.label(portrait, "NULL", 14, {
 		FontFace = Kit.Title,
 		TextColor3 = P.Text,
 		Position = UDim2.fromOffset(0, 100),

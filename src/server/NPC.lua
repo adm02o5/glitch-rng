@@ -92,7 +92,7 @@ local function buildStall(root: Model, base: CFrame)
 	-- Laptop on the counter.
 	part(root, Vector3.new(2, 0.12, 1.4), base * CFrame.new(3, 3.2, 1.1), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
 	local lid = part(root, Vector3.new(2, 1.35, 0.08), base * CFrame.new(3, 3.85, 0.45) * CFrame.Angles(math.rad(-12), math.pi, 0), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
-	screen(lid, Enum.NormalId.Back, { "$ ./exploit.sh", "> rooting ...", "> odds: patched", "> hello friend_" }, P.Lime)
+	screen(lid, Enum.NormalId.Back, { "$ ./exploit.sh", "> rooting ...", "> odds: patched", "> handshake ok_" }, P.Lime)
 	-- Shelves of glowing script disks behind the counter.
 	for row = 0, 2 do
 		local y = 4.4 + row * 1.6
@@ -218,7 +218,7 @@ local function buildElliot(root: Model, cf: CFrame): Model?
 	prompt.MaxActivationDistance = 11
 	prompt.RequiresLineOfSight = false
 	prompt.ActionText = "Talk"
-	prompt.ObjectText = "ELLIOT"
+	prompt.ObjectText = "NULL"
 	prompt:SetAttribute("Kind", "Elliot")
 	prompt.Parent = hrp
 	-- Name plate.
@@ -232,7 +232,7 @@ local function buildElliot(root: Model, cf: CFrame): Model?
 	local name = Instance.new("TextLabel")
 	name.BackgroundTransparency = 1
 	name.Size = UDim2.fromScale(1, 0.6)
-	name.Text = "ELLIOT"
+	name.Text = "NULL"
 	name.TextScaled = true
 	name.FontFace = Font.new("rbxasset://fonts/families/Michroma.json")
 	name.TextColor3 = P.Lime

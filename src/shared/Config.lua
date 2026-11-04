@@ -348,7 +348,7 @@ export type Quest = {
 }
 
 Config.Quests = {
-	{ title = "Hello, friend.", text = "Roll 10 times. Let's see what the system gives you.",
+	{ title = "Handshake", text = "Roll 10 times. Let's see what the system gives you.",
 		goal = { kind = "roll", n = 10 }, bits = 50, scripts = { Luck = 1 } },
 	{ title = "White Noise", text = "Roll 50 times. Patterns hide in the noise.",
 		goal = { kind = "roll", n = 50 }, bits = 100 },

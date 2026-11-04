@@ -80,13 +80,16 @@ local function track(name: string): Sound?
 	return tracks[name]
 end
 
+-- The local player's equipped Legendary+ aura plays its own theme; otherwise the biome track.
 local function musicFor(biome: string): string
-	if biome == "KernelPanic" or biome == "Blackout" then
-		return "MusicPanic"
-	elseif biome == "DataStorm" or biome == "Overclock" then
-		return "MusicStorm"
+	local aura = game:GetService("Players").LocalPlayer:GetAttribute("Aura")
+	if typeof(aura) == "string" and Sounds["Theme_" .. aura] and Sounds["Theme_" .. aura] ~= "" then
+		return "Theme_" .. aura
 	end
-	return "MusicMain"
+	if Sounds["Music" .. biome] and Sounds["Music" .. biome] ~= "" then
+		return "Music" .. biome
+	end
+	return "MusicNormal"
 end
 
 local function updateMusic()
@@ -106,6 +109,7 @@ local function updateMusic()
 	end
 end
 ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(updateMusic)
+game:GetService("Players").LocalPlayer:GetAttributeChangedSignal("Aura"):Connect(updateMusic)
 Ctx.Changed.Event:Connect(updateMusic)
 
 local first = Ctx.Request("Hello")
