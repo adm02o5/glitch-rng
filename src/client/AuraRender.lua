@@ -96,6 +96,20 @@ type Handle = { Destroy: (self: any) -> () }
 local handles: { [Player]: { aura: Handle?, rig: Handle?, tag: BillboardGui? } } = {}
 local local_ = Players.LocalPlayer
 
+-- Performance LOD: other players' auras are only built while they are near the camera.
+-- Hysteresis (build < NEAR, remove > FAR) avoids rebuilding at the edge.
+local NEAR, FAR = 140, 180
+local far: { [Player]: boolean } = {}
+
+local function camDistance(plr: Player): number
+	local root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local cam = workspace.CurrentCamera
+	if not (root and cam) then
+		return 0
+	end
+	return (root.Position - cam.CFrame.Position).Magnitude
+end
+
 local function showOthers(): boolean
 	local s = Ctx.Data.Settings
 	return s == nil or s.Others ~= false
@@ -128,7 +142,7 @@ local function apply(plr: Player)
 	if hum then
 		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	end
-	if plr ~= local_ and not showOthers() then
+	if plr ~= local_ and (not showOthers() or far[plr]) then
 		return
 	end
 	local h = {}
@@ -166,7 +180,27 @@ function AuraRender.Start()
 		watch(plr)
 	end
 	Players.PlayerAdded:Connect(watch)
-	Players.PlayerRemoving:Connect(clear)
+	Players.PlayerRemoving:Connect(function(plr)
+		clear(plr)
+		far[plr] = nil
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, plr in Players:GetPlayers() do
+				if plr ~= local_ then
+					local d = camDistance(plr)
+					if far[plr] and d < NEAR then
+						far[plr] = nil
+						apply(plr)
+					elseif not far[plr] and d > FAR then
+						far[plr] = true
+						clear(plr)
+					end
+				end
+			end
+		end
+	end)
 	local last = showOthers()
 	Ctx.Changed.Event:Connect(function()
 		local now = showOthers()

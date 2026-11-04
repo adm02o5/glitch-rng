@@ -2086,7 +2086,8 @@ end
 
 local TOWER_COLS = { rgb(10, 11, 17), rgb(13, 14, 21), rgb(9, 10, 14), rgb(15, 13, 20), rgb(11, 13, 18) }
 
-local function skyscraper(parent: Instance, cf: CFrame, w: number, d: number, h: number, sideWindows: boolean, step: number)
+-- hideBelow: windows below this height are skipped (hidden behind the row in front).
+local function skyscraper(parent: Instance, cf: CFrame, w: number, d: number, h: number, sideWindows: boolean, step: number, hideBelow: number?)
 	local m = model(parent, "Tower")
 	local col = pick(TOWER_COLS)
 	local mat = if chance(0.5) then CONCRETE else SMOOTH
@@ -2098,10 +2099,11 @@ local function skyscraper(parent: Instance, cf: CFrame, w: number, d: number, h:
 		local body = box(m, Vector3.new(tw, th, td), cf * CFrame.new(0, y0 + th / 2, 0), col, mat)
 		body.CastShadow = false
 		body.Reflectance = if mat == SMOOTH then 0.1 else 0
-		windowGrid(m, cf * CFrame.new(0, y0, -td / 2), tw - 2, th, rr(0.16, 0.36), 4, step, if step > 4 then 4.2 else 3.2)
+		local sy = math.max(4, (hideBelow or 0) - y0)
+		windowGrid(m, cf * CFrame.new(0, y0, -td / 2), tw - 2, th, rr(0.16, 0.36), sy, step, if step > 4 then 4.2 else 3.2)
 		if sideWindows then
-			windowGrid(m, cf * CFrame.new(-tw / 2, y0, 0) * CFrame.Angles(0, PI / 2, 0), td - 2, th, rr(0.08, 0.2), 4, step)
-			windowGrid(m, cf * CFrame.new(tw / 2, y0, 0) * CFrame.Angles(0, -PI / 2, 0), td - 2, th, rr(0.08, 0.2), 4, step)
+			windowGrid(m, cf * CFrame.new(-tw / 2, y0, 0) * CFrame.Angles(0, PI / 2, 0), td - 2, th, rr(0.08, 0.2), sy, step)
+			windowGrid(m, cf * CFrame.new(tw / 2, y0, 0) * CFrame.Angles(0, -PI / 2, 0), td - 2, th, rr(0.08, 0.2), sy, step)
 		end
 		for ly = y0 + 4 * step - step / 2, y0 + th - 3, 4 * step do
 			deco(m, Vector3.new(tw + 0.5, 0.45, td + 0.5), cf * CFrame.new(0, ly, 0), METAL, METALM)
@@ -2168,7 +2170,7 @@ end
 
 local function buildSkyline(root: Instance)
 	local m = model(root, "Skyline")
-	local function row(dist: number, hMin: number, hMax: number, sideWin: boolean, step: number)
+	local function row(dist: number, hMin: number, hMax: number, sideWin: boolean, step: number, hideBelow: number?)
 		for side = 0, 3 do
 			local R = CFrame.Angles(0, side * PI / 2, 0)
 			local x = -dist + rr(0, 6)
@@ -2177,19 +2179,20 @@ local function buildSkyline(root: Instance)
 				local d = rr(20, 34)
 				local h = rr(hMin, hMax)
 				local off = rr(0, 10)
-				skyscraper(m, R * CFrame.new(x + w / 2, 0, -(dist + off + d / 2)) * CFrame.Angles(0, PI, 0), w, d, h, sideWin, step)
+				skyscraper(m, R * CFrame.new(x + w / 2, 0, -(dist + off + d / 2)) * CFrame.Angles(0, PI, 0), w, d, h, sideWin, step, hideBelow)
 				x += w + rr(3, 10)
 			end
 		end
 	end
-	row(152, 55, 130, true, 4)
-	row(215, 110, 200, false, 6)
+	-- Performance: the back row's lower floors are hidden behind the front row, so they get no windows.
+	row(152, 55, 130, false, 5) -- side faces are mostly hidden by neighbouring towers
+	row(215, 110, 200, false, 6, 75)
 	-- corner towers between the rows
 	for i = 0, 3 do
 		local a = i * PI / 2 + PI / 4
 		for _, r in { 182 * math.sqrt(2), 250 * math.sqrt(2) } do
 			local p = Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
-			skyscraper(m, CFrame.lookAt(p, Vector3.zero), rr(28, 40), rr(28, 40), rr(120, 210), false, 6)
+			skyscraper(m, CFrame.lookAt(p, Vector3.zero), rr(28, 40), rr(28, 40), rr(120, 210), false, 6, if r > 300 then 75 else 30)
 		end
 	end
 	-- far horizon silhouettes (no windows, just trims + red lights)

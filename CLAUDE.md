@@ -32,7 +32,7 @@ Agents: at most 2 at a time, effort medium.
   Ask the user before uploading.
 
 ## Status (2026-11-04)
-Playtested in Studio: server/rolls/biomes/cutscene/auras/windows all run without errors (map = 28.7k parts). All 25 sounds uploaded to group 34355563 (ids in Sounds.lua, build/sfx/ids.json).
+Playtested in Studio: server/rolls/biomes/cutscene/auras/windows all run without errors (map = 25.9k parts after the 2026-11-05 trim). All 25 sounds uploaded to group 34355563 (ids in Sounds.lua, build/sfx/ids.json).
 
 ## Studio testing (no mouse!)
 - `python3 tools/reload.py [files]` pushes src/*.lua into the open Studio place (edit mode).
