@@ -248,6 +248,9 @@ for _, s in Config.Scripts do
 	Config.ScriptById[s.id] = s
 end
 
+-- Admin panel access (Roblox UserIds). adm02o5 = 1626125898.
+Config.Admins = { [1626125898] = true } :: { [number]: boolean }
+
 -- Rolling.
 Config.Roll = {
 	Cooldown = 2.4, -- base seconds per roll (divided by speed)

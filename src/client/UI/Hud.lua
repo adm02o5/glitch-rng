@@ -212,6 +212,10 @@ local function buildMenu(root: Frame)
 	menuButton(list, 2, "▤", "INDEX", P.Magenta, "Index")
 	menuButton(list, 3, "▶", "SCRIPTS", P.Lime, "Scripts")
 	menuButton(list, 4, "⚙", "SETTINGS", P.Dim, "Settings")
+	if Config.Admins[game:GetService("Players").LocalPlayer.UserId] then
+		menuButton(list, 5, "#", "ADMIN", P.Red, "Admin")
+		list.Size = UDim2.fromOffset(150, 330)
+	end
 end
 
 local function buildBiome(root: Frame)

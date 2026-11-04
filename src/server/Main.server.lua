@@ -292,6 +292,46 @@ function Actions.Hello(plr, p)
 	return view(p)
 end
 
+-- Admin panel (server-checked by UserId).
+local function isAdmin(plr: Player): boolean
+	return Config.Admins[plr.UserId] == true
+end
+
+-- Wear any aura for show without owning it; "" goes back to the saved one.
+function Actions.AdminWear(plr, p, id)
+	if not isAdmin(plr) then
+		return false
+	end
+	if id == nil or id == "" then
+		plr:SetAttribute("Aura", p.Aura or "")
+		return true
+	end
+	if typeof(id) ~= "string" or not Config.AuraById[id] then
+		return false
+	end
+	plr:SetAttribute("Aura", id)
+	return true
+end
+
+function Actions.AdminBiome(plr, _p, id)
+	if not isAdmin(plr) or typeof(id) ~= "string" or not Config.BiomeById[id] then
+		return false
+	end
+	Biome.Set(id)
+	return true
+end
+
+function Actions.AdminGive(plr, p, args)
+	if not isAdmin(plr) or typeof(args) ~= "table" or typeof(args.id) ~= "string" or not Config.AuraById[args.id] then
+		return false
+	end
+	local n = math.clamp(math.floor(tonumber(args.n) or 1), 1, 1000)
+	p.Inv[args.id] = (p.Inv[args.id] or 0) + n
+	p.Found[args.id] = p.Found[args.id] or os.time()
+	send(plr)
+	return true
+end
+
 -- Studio-only test helpers.
 if RunService:IsStudio() then
 	function Actions.DebugBiome(_plr, _p, id)
@@ -358,6 +398,7 @@ Data.Loaded.Event:Connect(function(plr: Player)
 		return
 	end
 	applyLook(plr, p)
+	plr:SetAttribute("Admin", isAdmin(plr))
 	plr:SetAttribute("Loaded", true)
 	send(plr)
 end)

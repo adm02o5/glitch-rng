@@ -196,6 +196,30 @@ function Roller.Roll(): boolean
 	return true
 end
 
+-- Admin preview: plays the full roll presentation for any aura without asking the server.
+function Roller.Preview(a: Config.Aura, first: boolean?): boolean
+	if rolling or Ctx.Busy then
+		return false
+	end
+	rolling = true
+	Ctx.Busy = true
+	local ok, err = pcall(function()
+		spin(a, 1.4)
+		if Config.TierOf(a.chance).cutscene > 0 then
+			card.Visible = false
+			Cutscene.Play(a, { first = first == true })
+		end
+		reveal(a, { first = first == true })
+	end)
+	if not ok then
+		warn("[Roller] preview failed:", err)
+		card.Visible = false
+	end
+	rolling = false
+	Ctx.Busy = false
+	return ok
+end
+
 function Roller.Start()
 	buildCard()
 	Hud.OnRoll.Event:Connect(function()
