@@ -16,10 +16,11 @@ local P = Kit.P
 local new = Kit.new
 
 return function()
-	local win = Kit.window("SCRIPTS", "// execute compiled boosts · craft more at the SCRIPT LAB", Vector2.new(620, 420), P.Lime)
-	local list = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = win.body })
-	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
+	local win = Kit.window("SCRIPTS", "// execute compiled boosts · craft more at the SCRIPT LAB", Vector2.new(660, 580), P.Lime)
+	local list = Kit.scroll(win.body)
+	new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), Parent = list })
 
+	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
 	local function render()
 		W.clear(list)
 		local d = Ctx.Data
@@ -36,8 +37,8 @@ return function()
 			local info = s.desc
 			if active then
 				info ..= "   ·   running " .. RNG.Time(active)
-			elseif s.id == "Breach" and (d.Breach or 0) > 0 then
-				info ..= "   ·   armed x" .. tostring(d.Breach)
+			elseif d.NextRolls and (d.NextRolls[s.id] or 0) > 0 then
+				info ..= "   ·   armed x" .. tostring(d.NextRolls[s.id])
 			end
 			Kit.label(row, info, 13, {
 				TextColor3 = P.Dim,

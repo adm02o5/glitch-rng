@@ -155,6 +155,55 @@ Config.Auras = {
 		desc = "████ ██ ███████ ████.", look = "black censor bars orbiting, red classified stamps, reality tearing" },
 } :: { Aura }
 
+-- Extra small auras (sorted into place below).
+local EXTRA_AURAS = {
+	-- BASIC
+	{ id = "Spam", name = "Spam", chance = 3, color = rgb(220, 220, 140), color2 = rgb(120, 110, 60),
+		desc = "You have 999+ unread messages.", look = "little envelope icons bouncing around the body" },
+	{ id = "Cursor", name = "Cursor", chance = 5, color = rgb(255, 255, 255), color2 = rgb(80, 80, 90),
+		desc = "Click here. No, here.", look = "white arrow cursors circling and clicking with tiny ripples" },
+	{ id = "Loading", name = "Loading", chance = 9, color = rgb(120, 200, 255), color2 = rgb(30, 60, 120),
+		desc = "Please wait...", look = "spinning loading-circle segments around the waist and a progress bar above head" },
+	{ id = "WiFi", name = "Wi-Fi", chance = 15, color = rgb(90, 255, 200), color2 = rgb(20, 90, 80),
+		desc = "Full bars. For now.", look = "wifi signal arcs pulsing outward from the head" },
+	{ id = "Captcha", name = "Captcha", chance = 25, color = rgb(120, 170, 255), color2 = rgb(255, 255, 255),
+		desc = "Select all squares with auras.", look = "3x3 grid tiles orbiting, a checkmark popping in and out" },
+	{ id = "Popup", name = "Popup", chance = 40, color = rgb(255, 120, 200), color2 = rgb(90, 40, 80),
+		desc = "Congratulations! You are the 1,000,000th visitor!", look = "small window popups appearing and closing around the player" },
+	{ id = "Emoji", name = "Emoji", chance = 60, color = rgb(255, 220, 60), color2 = rgb(255, 120, 40),
+		desc = ":)", look = "yellow smiley faces floating up and fading" },
+	{ id = "Spoof", name = "Spoof", chance = 90, color = rgb(160, 255, 255), color2 = rgb(255, 80, 160),
+		desc = "Definitely the real you.", look = "a faint fake copy flickering behind the player with mismatched colors" },
+	-- ENHANCED
+	{ id = "Patch", name = "Patch", chance = 150, color = rgb(120, 255, 120), color2 = rgb(40, 120, 255),
+		desc = "Fixed 3 bugs. Added 7.", look = "bandage strips of code wrapping the body, green plus signs" },
+	{ id = "Debug", name = "Debug", chance = 250, color = rgb(255, 200, 80), color2 = rgb(255, 80, 80),
+		desc = "Breakpoint hit.", look = "red breakpoint dots and yellow step arrows tracing around the body" },
+	{ id = "Hotfix", name = "Hotfix", chance = 400, color = rgb(255, 110, 40), color2 = rgb(255, 230, 120),
+		desc = "Deployed on a Friday.", look = "orange flames shaped like wrench icons, hot sparks" },
+	{ id = "Cipher", name = "Cipher", chance = 600, color = rgb(190, 140, 255), color2 = rgb(60, 30, 120),
+		desc = "Rot13 of something important.", look = "rotating letter wheels with shifting glyphs" },
+	{ id = "Deadlock", name = "Deadlock", chance = 900, color = rgb(120, 140, 170), color2 = rgb(255, 60, 60),
+		desc = "Waiting for itself. Forever.", look = "two padlocks orbiting and chained together with beams" },
+	-- RARE
+	{ id = "Deepfake", name = "Deepfake", chance = 1200, color = rgb(255, 160, 120), color2 = rgb(80, 200, 255),
+		desc = "Your face. Not your face.", look = "a mask-like head hologram drifting off the head, face-scan grid" },
+	{ id = "Darkweb", name = "Darkweb", chance = 2000, color = rgb(120, 60, 200), color2 = rgb(10, 0, 20),
+		desc = "Not indexed. Not safe.", look = "purple spider-web lines spanning around the player, onion rings" },
+	{ id = "Virus", name = "Virus", chance = 3300, color = rgb(90, 255, 60), color2 = rgb(255, 40, 120),
+		desc = "Spreads by looking at it.", look = "spiky virus orbs replicating and splitting around the body" },
+	{ id = "Hacktivist", name = "Hacktivist", chance = 5000, color = rgb(230, 230, 230), color2 = rgb(255, 30, 60),
+		desc = "Expect us.", look = "floating masks, falling red code, protest-sign style glitch banners" },
+	{ id = "Synthwave", name = "Synthwave", chance = 7500, color = rgb(255, 80, 200), color2 = rgb(80, 200, 255),
+		desc = "Forever 1986.", look = "retro sun disc behind the player with stripes, neon grid floor, palm silhouettes" },
+} :: { Aura }
+for _, a in EXTRA_AURAS do
+	table.insert(Config.Auras, a)
+end
+table.sort(Config.Auras, function(x, y)
+	return x.chance < y.chance
+end)
+
 Config.AuraById = {} :: { [string]: Aura }
 for _, a in Config.Auras do
 	Config.AuraById[a.id] = a
@@ -209,10 +258,14 @@ Config.Rigs = {
 		recipe = { Packet = 2, Cache = 5, Ping = 8 }, desc = "Reads the odds as they fly by." },
 	{ id = "Overclocker", name = "Overclocker", luck = 0.1, speed = 0.35, color = rgb(255, 140, 0),
 		recipe = { Firewall = 6, Bitrate = 2, Overflow = 1 }, desc = "Liquid cooled. Rolls 35% faster." },
+	{ id = "Cyberdeck", name = "Cyberdeck", luck = 0.5, speed = 0.2, color = rgb(255, 80, 200),
+		recipe = { Hotfix = 2, Cipher = 1, Debug = 3, Deadlock = 1 }, desc = "A street-built deck. +50% luck, +20% speed." },
 	{ id = "QuantumDeck", name = "Quantum Deck", luck = 0.75, speed = 0.15, color = rgb(160, 120, 255),
 		recipe = { Glitch = 2, Trojan = 1, Malware = 3, Proxy = 4 }, desc = "Computes every outcome at once." },
 	{ id = "KernelCore", name = "Kernel Core", luck = 1.5, speed = 0.25, color = rgb(255, 43, 214),
 		recipe = { Rootkit = 1, Cryptic = 1, NeonPulse = 2, Botnet = 2 }, desc = "Ring-zero access to fate." },
+	{ id = "GhostGlove", name = "Ghost Glove", luck = 2.2, speed = 0.3, color = rgb(220, 240, 255),
+		recipe = { Darkweb = 2, Virus = 1, Hacktivist = 1, Synthwave = 1, Rootkit = 1 }, desc = "Leaves no fingerprints on fate." },
 	{ id = "ArchitectGlove", name = "Architect's Hand", luck = 3, speed = 0.4, color = rgb(0, 255, 160),
 		recipe = { Mainframe = 1, ZeroDay = 1, Chromatic = 1, Hologram = 2 }, desc = "Rewrite the dice." },
 } :: { Rig }
@@ -229,6 +282,7 @@ export type Script = {
 	luck: number, -- multiplier while active (1 = none)
 	speed: number,
 	duration: number, -- seconds; 0 = next roll only
+	biome: boolean?, -- true: starts a random biome event for the whole server
 	color: Color3,
 	recipe: Recipe,
 	desc: string,
@@ -241,6 +295,16 @@ Config.Scripts = {
 		recipe = { Static = 6, Ping = 3, Cookie = 1 }, desc = "+50% roll speed for 5 minutes." },
 	{ id = "Breach", name = "breach.exe", luck = 20, speed = 1, duration = 0, color = rgb(255, 31, 61),
 		recipe = { Glitch = 1, Packet = 3, Lag = 4, Firewall = 4 }, desc = "Your next roll gets x20 luck." },
+	{ id = "Fortune", name = "fortune.exe", luck = 3, speed = 1, duration = 120, color = rgb(255, 215, 0),
+		recipe = { Captcha = 3, WiFi = 4, Loading = 6 }, desc = "x3 luck for 2 minutes." },
+	{ id = "Turbo", name = "turbo.exe", luck = 1, speed = 2, duration = 120, color = rgb(0, 200, 255),
+		recipe = { Cursor = 8, Spam = 10, Popup = 2 }, desc = "x2 roll speed for 2 minutes." },
+	{ id = "Overdrive", name = "overdrive.exe", luck = 1.5, speed = 1.3, duration = 600, color = rgb(255, 120, 40),
+		recipe = { Hotfix = 1, Debug = 2, Patch = 3, Emoji = 4 }, desc = "x1.5 luck and +30% speed for 10 minutes." },
+	{ id = "Jackpot", name = "jackpot.exe", luck = 100, speed = 1, duration = 0, color = rgb(255, 43, 214),
+		recipe = { Virus = 1, Darkweb = 1, Deadlock = 2, Cipher = 2 }, desc = "Your next roll gets x100 luck." },
+	{ id = "Storm", name = "storm.exe", luck = 1, speed = 1, duration = 0, biome = true, color = rgb(60, 255, 160),
+		recipe = { Deepfake = 1, Spoof = 5, Deadlock = 1, Synthwave = 1 }, desc = "Starts a random biome event for the whole server." },
 } :: { Script }
 
 Config.ScriptById = {} :: { [string]: Script }
@@ -323,7 +387,12 @@ Config.Contract = {
 Config.Shop = {
 	{ id = "Luck", price = 200 },
 	{ id = "Speed", price = 150 },
+	{ id = "Turbo", price = 400 },
+	{ id = "Fortune", price = 600 },
+	{ id = "Overdrive", price = 1500 },
 	{ id = "Breach", price = 3000 },
+	{ id = "Storm", price = 5000 },
+	{ id = "Jackpot", price = 12000 },
 } :: { { id: string, price: number } }
 
 -- NPC look (R6, classic clothing + rigid accessories from the marketplace).

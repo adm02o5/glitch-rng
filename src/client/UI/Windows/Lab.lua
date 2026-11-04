@@ -17,8 +17,8 @@ return function()
 	local win = Kit.window("SCRIPT LAB", "// compile boost scripts · run them from the SCRIPTS menu", Vector2.new(860, 520), P.Lime)
 	local selected = Config.Scripts[1].id
 
-	local list = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(0, 300, 1, 0), Parent = win.body })
-	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
+	local list = Kit.scroll(win.body, { Size = UDim2.new(0, 300, 1, 0) })
+	new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), Parent = list })
 	local detail = Kit.panel(win.body, {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
@@ -96,6 +96,7 @@ return function()
 		end)
 	end
 
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
 	renderList = function()
 		W.clear(list)
 		for i, s in Config.Scripts do

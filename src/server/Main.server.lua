@@ -69,6 +69,7 @@ local function view(p: Data.Profile)
 		Scripts = p.Scripts,
 		Active = p.Active,
 		Breach = p.Breach,
+		NextRolls = p.NextRolls,
 		Best = p.Best,
 		Settings = p.Settings,
 		Bits = p.Bits,
@@ -154,10 +155,26 @@ function Actions.Roll(plr, p)
 	if boot then
 		luck *= Config.Roll.BonusLuck
 	end
-	local breach = false
+	-- Old saves kept breach.exe in its own counter.
 	if p.Breach > 0 then
-		p.Breach -= 1
-		luck *= Config.ScriptById.Breach.luck
+		p.NextRolls.Breach = (p.NextRolls.Breach or 0) + p.Breach
+		p.Breach = 0
+	end
+	-- Use the strongest armed one-shot script.
+	local breach = false
+	local bestId: string? = nil
+	for id, n in p.NextRolls do
+		local sc = Config.ScriptById[id]
+		if sc and n > 0 and (not bestId or sc.luck > Config.ScriptById[bestId].luck) then
+			bestId = id
+		end
+	end
+	if bestId then
+		p.NextRolls[bestId] -= 1
+		if p.NextRolls[bestId] <= 0 then
+			p.NextRolls[bestId] = nil
+		end
+		luck *= Config.ScriptById[bestId].luck
 		breach = true
 	end
 
@@ -194,7 +211,7 @@ function Actions.Roll(plr, p)
 	end
 	Board.Bump(plr, p.Rolls)
 	send(plr)
-	return { ok = true, aura = aura.id, boot = boot, breach = breach, first = first, luck = luck, cd = cd, bits = bits }
+	return { ok = true, aura = aura.id, boot = boot, breach = breach, boost = bestId, first = first, luck = luck, cd = cd, bits = bits }
 end
 
 function Actions.Equip(plr, p, id)
@@ -287,14 +304,36 @@ function Actions.UseScript(plr, p, id)
 	if not s or (p.Scripts[s.id] or 0) <= 0 then
 		return false
 	end
+	-- storm.exe only works while no biome is running.
+	if s.biome and Biome.Current() ~= "Normal" then
+		return false
+	end
 	p.Scripts[s.id] -= 1
 	if p.Scripts[s.id] <= 0 then
 		p.Scripts[s.id] = nil
 	end
-	if s.duration > 0 then
+	if s.biome then
+		-- Random biome, weighted by how common it normally is.
+		local total = 0
+		for _, b in Config.Biomes do
+			if b.chance > 0 then
+				total += 1 / b.chance
+			end
+		end
+		local r = rng:NextNumber() * total
+		for _, b in Config.Biomes do
+			if b.chance > 0 then
+				r -= 1 / b.chance
+				if r <= 0 then
+					Biome.Set(b.id)
+					break
+				end
+			end
+		end
+	elseif s.duration > 0 then
 		p.Active[s.id] = (p.Active[s.id] or 0) + s.duration
 	else
-		p.Breach += 1
+		p.NextRolls[s.id] = (p.NextRolls[s.id] or 0) + 1
 	end
 	questEvent(p, "useScript")
 	send(plr)

@@ -179,7 +179,8 @@ return function()
 
 	local function shopView()
 		local d = Ctx.Data
-		local list = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = content })
+		local list = Kit.scroll(content)
+		new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 2), Parent = list })
 		new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
 		for i, item in Config.Shop do
 			local s = Config.ScriptById[item.id]

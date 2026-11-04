@@ -315,8 +315,11 @@ local function refreshBoosts(d: { [string]: any })
 			l:SetAttribute("Title", "> " .. s.name)
 		end
 	end
-	if (d.Breach or 0) > 0 then
-		Kit.label(boostList, string.format("> breach.exe armed  x%d", d.Breach), 13, { TextColor3 = P.Red })
+	for id, n in (d.NextRolls or {}) :: { [string]: number } do
+		local s = Config.ScriptById[id]
+		if s and n > 0 then
+			Kit.label(boostList, string.format("> %s armed  x%d", s.name, n), 13, { TextColor3 = s.color })
+		end
 	end
 end
 

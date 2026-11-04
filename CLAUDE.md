@@ -10,7 +10,7 @@ Agents: at most 2 at a time, effort medium.
 - Git: branch `glitch-rng`; commit after every round of changes (user asked "делай гиты").
 
 ## Layout
-- `src/shared/Config.lua` — ALL game data: palette, tiers (cutscene level 0..5), 40 auras (chance = 1 in N,
+- `src/shared/Config.lua` — ALL game data: palette, tiers (cutscene level 0..5), 58 auras (chance = 1 in N,
   optional biome), biomes, rigs (hand gear, crafted from auras), scripts (boost consumables), roll settings.
 - `src/shared/RNG.lua` — roll algorithm (rarest→common, hit = luck/chance), formatting.
 - `src/shared/AuraFX.lua` — client VFX: Attach(char, auraId), AttachRig(char, rigId), Burst(pos, auraId, scale).
