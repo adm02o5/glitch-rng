@@ -92,7 +92,7 @@ local function buildStall(root: Model, base: CFrame)
 	-- Laptop on the counter.
 	part(root, Vector3.new(2, 0.12, 1.4), base * CFrame.new(3, 3.2, 1.1), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
 	local lid = part(root, Vector3.new(2, 1.35, 0.08), base * CFrame.new(3, 3.85, 0.45) * CFrame.Angles(math.rad(-12), math.pi, 0), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
-	screen(lid, Enum.NormalId.Back, { "$ ./fsociety.sh", "> rooting ...", "> odds: patched", "> hello friend_" }, P.Lime)
+	screen(lid, Enum.NormalId.Back, { "$ ./exploit.sh", "> rooting ...", "> odds: patched", "> hello friend_" }, P.Lime)
 	-- Shelves of glowing script disks behind the counter.
 	for row = 0, 2 do
 		local y = 4.4 + row * 1.6
