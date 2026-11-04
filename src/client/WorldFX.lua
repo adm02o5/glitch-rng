@@ -106,8 +106,8 @@ type Look = {
 
 local LOOKS: { [string]: Look } = {
 	Normal = {
-		ambient = Color3.new(0.04, 0.04, 0.07),
-		outdoor = Color3.new(0.12, 0.1, 0.2),
+		ambient = rgb(34, 32, 54),
+		outdoor = rgb(72, 64, 112),
 		brightness = 1.2,
 		exposure = 0.1,
 		atmoDensity = 0.36,
@@ -128,8 +128,8 @@ local LOOKS: { [string]: Look } = {
 		neonMix = 0,
 	},
 	DataStorm = {
-		ambient = rgb(6, 22, 14),
-		outdoor = rgb(20, 64, 42),
+		ambient = rgb(18, 46, 32),
+		outdoor = rgb(42, 104, 72),
 		brightness = 1.0,
 		exposure = 0.05,
 		atmoDensity = 0.5,
@@ -150,8 +150,8 @@ local LOOKS: { [string]: Look } = {
 		neonMix = 0.85,
 	},
 	Overclock = {
-		ambient = rgb(28, 14, 6),
-		outdoor = rgb(92, 50, 20),
+		ambient = rgb(50, 30, 14),
+		outdoor = rgb(112, 66, 30),
 		brightness = 1.6,
 		exposure = 0.18,
 		atmoDensity = 0.42,
@@ -172,8 +172,8 @@ local LOOKS: { [string]: Look } = {
 		neonMix = 0.85,
 	},
 	Blackout = {
-		ambient = rgb(3, 2, 4),
-		outdoor = rgb(8, 5, 10),
+		ambient = rgb(12, 7, 12),
+		outdoor = rgb(24, 13, 22),
 		brightness = 0.3,
 		exposure = -0.1,
 		atmoDensity = 0.55,
@@ -194,8 +194,8 @@ local LOOKS: { [string]: Look } = {
 		neonMix = 1,
 	},
 	KernelPanic = {
-		ambient = rgb(26, 4, 6),
-		outdoor = rgb(74, 10, 16),
+		ambient = rgb(46, 10, 14),
+		outdoor = rgb(98, 20, 28),
 		brightness = 1.0,
 		exposure = 0.1,
 		atmoDensity = 0.5,

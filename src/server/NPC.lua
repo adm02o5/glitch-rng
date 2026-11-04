@@ -81,17 +81,17 @@ local function buildStall(root: Model, base: CFrame)
 		part(root, Vector3.new(0.5, 9.4, 0.5), base * CFrame.new(x, 4.9, 0.2), METAL, Enum.Material.Metal)
 	end
 	-- Counter with glowing strip and keyboard.
-	part(root, Vector3.new(12, 3.2, 1.6), base * CFrame.new(0, 1.9, 1.2), DARK, Enum.Material.Metal)
-	part(root, Vector3.new(12.4, 0.25, 2), base * CFrame.new(0, 3.6, 1.2), METAL, Enum.Material.Metal)
-	neon(root, Vector3.new(11.6, 0.12, 0.12), base * CFrame.new(0, 3.3, 2.05), P.Lime)
+	part(root, Vector3.new(12, 2.6, 1.6), base * CFrame.new(0, 1.6, 1.2), DARK, Enum.Material.Metal)
+	part(root, Vector3.new(12.4, 0.25, 2), base * CFrame.new(0, 3.0, 1.2), METAL, Enum.Material.Metal)
+	neon(root, Vector3.new(11.6, 0.12, 0.12), base * CFrame.new(0, 2.75, 2.05), P.Lime)
 	neon(root, Vector3.new(11.6, 0.12, 0.12), base * CFrame.new(0, 0.6, 2.05), P.Magenta)
-	part(root, Vector3.new(2.2, 0.12, 0.8), base * CFrame.new(-3.2, 3.78, 1.0), Color3.fromRGB(10, 10, 12))
+	part(root, Vector3.new(2.2, 0.12, 0.8), base * CFrame.new(-3.2, 3.18, 1.0), Color3.fromRGB(10, 10, 12))
 	for k = 0, 9 do
-		neon(root, Vector3.new(0.14, 0.05, 0.14), base * CFrame.new(-4.1 + k * 0.2, 3.86, 0.9), P.Lime).Transparency = 0.4
+		neon(root, Vector3.new(0.14, 0.05, 0.14), base * CFrame.new(-4.1 + k * 0.2, 3.26, 0.9), P.Lime).Transparency = 0.4
 	end
 	-- Laptop on the counter.
-	part(root, Vector3.new(2, 0.12, 1.4), base * CFrame.new(3, 3.8, 1.1), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
-	local lid = part(root, Vector3.new(2, 1.35, 0.08), base * CFrame.new(3, 4.45, 0.45) * CFrame.Angles(math.rad(-12), math.pi, 0), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
+	part(root, Vector3.new(2, 0.12, 1.4), base * CFrame.new(3, 3.2, 1.1), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
+	local lid = part(root, Vector3.new(2, 1.35, 0.08), base * CFrame.new(3, 3.85, 0.45) * CFrame.Angles(math.rad(-12), math.pi, 0), Color3.fromRGB(30, 30, 36), Enum.Material.Metal)
 	screen(lid, Enum.NormalId.Back, { "$ ./fsociety.sh", "> rooting ...", "> odds: patched", "> hello friend_" }, P.Lime)
 	-- Shelves of glowing script disks behind the counter.
 	for row = 0, 2 do
@@ -125,6 +125,36 @@ local function buildStall(root: Model, base: CFrame)
 		l.Brightness = 0.7
 		l.Parent = bulb
 	end
+	-- Lighting so Elliot and the shelves read at night: a key light from the awning onto the counter,
+	-- a cold fill from the laptop and a soft glow along the shelves.
+	local key = part(root, Vector3.new(1.2, 0.2, 1.2), base * CFrame.new(0, 9.3, 0.6), Color3.fromRGB(240, 240, 220), Enum.Material.Neon)
+	key.CanCollide = false
+	-- Warm key light hanging under the awning, just in front of Elliot.
+	local bulb = neon(root, Vector3.new(0.5, 0.5, 0.5), base * CFrame.new(0, 7.2, 0.2), Color3.fromRGB(255, 236, 210))
+	bulb.Shape = Enum.PartType.Ball
+	neon(root, Vector3.new(0.05, 2, 0.05), base * CFrame.new(0, 8.3, 0.2), Color3.fromRGB(60, 60, 70)).Material = Enum.Material.Metal
+	local keyLight = Instance.new("PointLight")
+	keyLight.Color = Color3.fromRGB(255, 232, 205)
+	keyLight.Range = 14
+	keyLight.Brightness = 2.6
+	keyLight.Shadows = true
+	keyLight.Parent = bulb
+	local fill = Instance.new("PointLight")
+	fill.Color = Color3.fromRGB(140, 255, 190)
+	fill.Range = 9
+	fill.Brightness = 1.6
+	fill.Parent = lid
+	for row = 0, 2 do
+		local strip = neon(root, Vector3.new(11.6, 0.06, 0.06), base * CFrame.new(0, 4.52 + row * 1.6, -3.85), P.Cyan)
+		local sl = Instance.new("SurfaceLight")
+		sl.Face = Enum.NormalId.Top
+		sl.Angle = 80
+		sl.Range = 3
+		sl.Brightness = 1.2
+		sl.Color = P.Cyan
+		sl.Parent = strip
+	end
+
 	-- Crates and a stool beside the stall.
 	for i, off in { Vector3.new(9.5, 1.2, 1), Vector3.new(10, 3.3, 0.6), Vector3.new(-9.6, 1.2, 0) } do
 		local cr = part(root, Vector3.new(2.4, 2.4, 2.4), base * CFrame.new(off) * CFrame.Angles(0, math.rad(i * 13), 0), Color3.fromRGB(34, 30, 26), Enum.Material.WoodPlanks)
@@ -152,9 +182,20 @@ local function buildElliot(root: Model, cf: CFrame): Model?
 	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	local hrp = m:FindFirstChild("HumanoidRootPart") :: BasePart
-	m:PivotTo(cf)
+	-- Place by the root part (the model pivot is not the root, PivotTo sank him into the floor).
+	m.PrimaryPart = hrp
 	hrp.Anchored = true
+	hrp.CFrame = cf -- the rest of the rig follows through its joints
 	m.Parent = root
+	-- Soft face light so the black hoodie reads against the dark stall.
+	local faceLight = Instance.new("PointLight")
+	faceLight.Color = Color3.fromRGB(190, 255, 215)
+	faceLight.Range = 6
+	faceLight.Brightness = 1.4
+	local att = Instance.new("Attachment")
+	att.Position = Vector3.new(0, 1.2, -1.6)
+	att.Parent = hrp
+	faceLight.Parent = att
 	-- Idle animation.
 	task.spawn(function()
 		local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
