@@ -170,7 +170,7 @@ return function()
 			end
 			local r = Ctx.Request("QuestClaim")
 			if r then
-				Sfx.Play("Craft")
+				Sfx.Play("QuestDone", { volume = 0.8 })
 				Ctx.Toast(string.format("Quest complete  <b>+%s BITS</b>", RNG.Commas(r.bits)), P.Lime)
 				say.Text = "Good. There's more where that came from."
 			end
@@ -208,7 +208,7 @@ return function()
 				parent = row,
 			}, function()
 				if afford and Ctx.Request("ShopBuy", item.id) then
-					Sfx.Play("Equip")
+					Sfx.Play("Buy", { volume = 0.7 })
 					Ctx.Toast("Bought <b>" .. s.name .. "</b>", s.color)
 					say.Text = "Pleasure doing business."
 				else
@@ -237,7 +237,7 @@ return function()
 	win.onOpen = function()
 		lineIdx = lineIdx % #LINES + 1
 		task.spawn(Kit.type, say, LINES[lineIdx], 45, function()
-			Sfx.Play("Type", { volume = 0.25, pitch = 0.9 + math.random() * 0.3 })
+			Sfx.Play("NpcTalk", { volume = 0.3, pitch = 0.9 + math.random() * 0.25 })
 		end)
 		face.Text = ({ "[ o_o ]", "[ -_- ]", "[ o_O ]" })[math.random(1, 3)]
 		select(tab)

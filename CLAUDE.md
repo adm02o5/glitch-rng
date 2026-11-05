@@ -23,7 +23,7 @@ Agents: at most 2 at a time, effort medium.
   attribute Kind Forge/Lab/Index), `Announce.lua`, `WorldFX.lua` (tag animation + biome lighting/weather), `Sfx.lua`,
   `UI/Kit.lua` (theme + panel/button/window helpers), `UI/Hud.lua`, `UI/Windows/*.lua` (each returns `function(): Kit.Window`;
   registered in Ctx.Windows by module name: Inventory, Index, Scripts, Settings, Forge, Lab, Admin).
-- Admin panel: `Config.Admins` (UserIds; adm02o5 = 1626125898), server actions AdminWear/AdminBiome/AdminGive,
+- Admin panel: `Config.Admins` (UserIds; adm02o5 = 1626125898, Pois0nTaster = 3041886047), server actions AdminWear/AdminBiome/AdminGive,
   `Roller.Preview(aura, first)` plays reel + cutscene + reveal locally, `UI/Windows/Admin.lua` (demo mode plays all).
 
 ## Audio

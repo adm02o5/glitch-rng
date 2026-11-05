@@ -416,7 +416,7 @@ function Hud.Start()
 		if lastBiome ~= "" and id ~= lastBiome then
 			Kit.glitch(biomeName, 0.8)
 			if id ~= "Normal" then
-				Sfx.Play("Biome")
+				Sfx.Play("BiomeStart_" .. id, { volume = 0.8 })
 				local extra = {}
 				if b.luck ~= 1 then
 					table.insert(extra, string.format("x%.2g luck", b.luck))

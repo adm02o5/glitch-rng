@@ -96,7 +96,7 @@ local function updateMusic()
 	local want = musicFor(ReplicatedStorage:GetAttribute("Biome") or "Normal")
 	local vol = 0.6 * (tonumber(Ctx.Data.Settings and Ctx.Data.Settings.Music) or 0.6)
 	for name, s in tracks do
-		if name ~= want then
+		if name ~= want and name:sub(1, 3) ~= "Amb" then -- ambience is handled separately
 			Kit.tween(s, 2, { Volume = 0 }, Enum.EasingStyle.Linear)
 		end
 	end
@@ -108,6 +108,24 @@ local function updateMusic()
 		Kit.tween(t, 2, { Volume = vol }, Enum.EasingStyle.Linear)
 	end
 end
+-- Ambience under the music: city hum always, digital rain during Data Storm.
+local function ambience()
+	local vol = tonumber(Ctx.Data.Settings and Ctx.Data.Settings.Music) or 0.6
+	local biome = (ReplicatedStorage:GetAttribute("Biome") or "Normal") :: string
+	local levels: { [string]: number } = { AmbCity = 0.35, AmbStorm = if biome == "DataStorm" then 0.45 else 0 }
+	for name, want in levels do
+		local t = track(name)
+		if t then
+			if not t.IsPlaying then
+				t:Play()
+			end
+			Kit.tween(t, 2, { Volume = want * vol }, Enum.EasingStyle.Linear)
+		end
+	end
+end
+ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(ambience)
+Ctx.Changed.Event:Connect(ambience)
+task.defer(ambience)
 ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(updateMusic)
 game:GetService("Players").LocalPlayer:GetAttributeChangedSignal("Aura"):Connect(updateMusic)
 Ctx.Changed.Event:Connect(updateMusic)
