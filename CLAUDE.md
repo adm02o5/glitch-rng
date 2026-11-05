@@ -39,7 +39,8 @@ Playtested in Studio: server/rolls/biomes/cutscene/auras/windows all run without
 - `python3 tools/reload.py [files]` pushes src/*.lua into the open Studio place (edit mode).
 - `cd tools && python3 playtest.py <sec> - tests/smoke_client.lua` runs a playtest with client logs;
   `python3 tools/shot.py name --count N --every S` grabs Studio-window screenshots (run in background during play).
-- The black square at the screen centre in screenshots is a Studio overlay (present even before/after play, not in game). Ignore it.
+- Black squares on screen = empty 100x100 "RobloxStudio" Wine popup windows left after play mode; playtest.py
+  now hides them after each run (xdotool windowunmap). Not part of the game.
 - Studio screenshots on this machine render very dark (low graphics, local lights off); the user confirmed
   the scene and Elliot look fine on their screen (2026-11-04). Don't "fix" darkness based on these shots alone.
 - Aura polish pass done 2026-11-04 (every aura has a sigil, root light, bigger silhouette; scale grows with tier).

@@ -78,3 +78,9 @@ for item in data.get("logs", []) + data.get("errors", []):
     seen.add(msg)
     print(item["level"], msg[:900])
 print("result:", data.get("value"), data.get("error"))
+
+# Wine leaves empty 100x100 "RobloxStudio" popup windows on screen after play mode (black squares over
+# the desktop). Hide them after every run.
+subprocess.run(["sh", "-c", 'for w in $(xdotool search --onlyvisible --name "^RobloxStudio$" 2>/dev/null); do '
+                'xdotool getwindowgeometry "$w" | grep -q "Geometry: 100x100" && xdotool windowunmap "$w"; done'],
+               capture_output=True, timeout=30)
