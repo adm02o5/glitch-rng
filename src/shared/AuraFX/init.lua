@@ -6,8 +6,8 @@
 --   AuraFX.Burst(position, auraId, scale?)         (one-shot reveal explosion, ~3 s)
 --   AuraFX.Has(auraId) -> boolean
 --
--- Auras listed in AuraFX/Poses also pose the body (procedural Motor6D offsets on top of the
--- walk / idle animation); levitating poses lift every root-anchored effect with the body.
+-- Auras of 1 in 1,000 and rarer also animate the body (AuraFX/Poses: a per-aura idle stance and
+-- walk gait as procedural Motor6D offsets); levitating sets lift every root-anchored effect.
 --
 -- Everything lives in a Folder "AuraFX" inside the character (one sub-folder per handle).
 -- Anchored parts are driven from one shared RenderStepped loop with Workspace:BulkMoveTo.
