@@ -127,6 +127,7 @@ EASE = {
 
 def _reset_scene():
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.context.preferences.filepaths.save_version = 0  # no .blend1 backups
     sc = bpy.context.scene
     sc.render.fps = FPS
     sc.render.fps_base = 1

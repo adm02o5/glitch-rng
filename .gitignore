@@ -6,3 +6,4 @@ build/sfx/*
 tools/dev/lsp/sourcemap.json
 __pycache__/
 .claude/
+*.blend1
