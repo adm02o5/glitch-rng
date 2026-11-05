@@ -35,17 +35,139 @@ Kit.Top.IgnoreGuiInset = true
 Kit.Top.DisplayOrder = 50
 Kit.Top.Parent = player.PlayerGui
 
--- Scale the whole UI down on small screens.
+-- Phone / tablet layout: touch without keyboard, or a short screen. The player attribute
+-- "ForceMobile" turns it on for testing on PC.
+function Kit.IsMobile(): boolean
+	if player:GetAttribute("ForceMobile") then
+		return true
+	end
+	local UIS = game:GetService("UserInputService")
+	local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
+	return (UIS.TouchEnabled and not UIS.KeyboardEnabled) or (v.Y > 10 and v.Y < 520)
+end
+
+-- Scale the whole UI (HUD layer and top layer) down on small screens.
 local scale = Instance.new("UIScale")
 scale.Parent = Kit.Gui
+local topScale = Instance.new("UIScale")
+topScale.Parent = Kit.Top
+Kit.Scale = scale
+Kit.TopScale = topScale
+
+local layoutFns: { (mobile: boolean) -> () } = {}
+local lastMobile: boolean? = nil
+
+-- Size of the screen in unscaled UI units (what offsets inside Kit.Gui / Kit.Top are measured in).
+function Kit.Screen(): Vector2
+	local cam = workspace.CurrentCamera
+	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	return v / math.max(scale.Scale, 0.01)
+end
+
+-- Height of the Roblox top bar (menu / chat buttons) in unscaled UI units.
+function Kit.Inset(): number
+	local GuiService = game:GetService("GuiService")
+	local ok, tl = pcall(function()
+		return (GuiService:GetGuiInset())
+	end)
+	local px = if ok and typeof(tl) == "Vector2" and tl.Y > 0 then tl.Y else 58
+	return px / math.max(scale.Scale, 0.01)
+end
+
 local function rescale()
 	local cam = workspace.CurrentCamera
 	local v = cam and cam.ViewportSize or Vector2.new(1920, 1080)
-	scale.Scale = math.clamp(math.min(v.X / 1600, v.Y / 900), 0.55, 1.15)
+	local k = math.clamp(math.min(v.X / 1600, v.Y / 900), 0.5, 1.15)
+	local mobile = Kit.IsMobile()
+	if mobile then
+		-- Phones are held close: a bit bigger than the pure ratio, so text stays readable.
+		k = math.clamp(k * 1.15, 0.5, 0.9)
+	end
+	scale.Scale = k
+	topScale.Scale = k
+	lastMobile = mobile
+	for _, fn in layoutFns do
+		task.spawn(fn, mobile)
+	end
 end
+
+-- Registers a layout function: runs now and again whenever the screen size or mobile mode changes.
+function Kit.OnLayout(fn: (mobile: boolean) -> ())
+	table.insert(layoutFns, fn)
+	fn(if lastMobile == nil then Kit.IsMobile() else lastMobile)
+end
+
 rescale()
 workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
-Kit.Scale = scale
+player:GetAttributeChangedSignal("ForceMobile"):Connect(rescale)
+
+-- True when the latest input came from a finger: hover effects are skipped (no mouse to leave).
+local UIS = game:GetService("UserInputService")
+function Kit.IsTouch(): boolean
+	return UIS:GetLastInputType() == Enum.UserInputType.Touch
+end
+
+export type Feedback = {
+	hover: (() -> ())?,
+	idle: () -> (),
+	press: () -> (),
+	release: (() -> ())?, -- mouse released while still over the button (default: hover)
+}
+
+-- Hover / press / release states that work for mouse, touch and gamepad selection. A touch never
+-- gets stuck in the hover state: when the finger lifts (or slides off and is cancelled) the button
+-- returns to idle.
+function Kit.feedback(b: GuiButton, fx: Feedback)
+	local touching = false
+	b.MouseEnter:Connect(function()
+		if touching or Kit.IsTouch() then
+			return
+		end
+		if fx.hover then
+			fx.hover()
+		end
+	end)
+	b.MouseLeave:Connect(function()
+		if not touching then
+			fx.idle()
+		end
+	end)
+	b.SelectionGained:Connect(function()
+		if fx.hover then
+			fx.hover()
+		end
+	end)
+	b.SelectionLost:Connect(function()
+		fx.idle()
+	end)
+	b.InputBegan:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 then
+			fx.press()
+		elseif t == Enum.UserInputType.Touch then
+			touching = true
+			fx.press()
+			local conn: RBXScriptConnection
+			conn = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+				local st = input.UserInputState
+				if st == Enum.UserInputState.End or st == Enum.UserInputState.Cancel then
+					conn:Disconnect()
+					touching = false
+					fx.idle()
+				end
+			end)
+		end
+	end)
+	b.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if fx.release then
+				fx.release()
+			elseif fx.hover then
+				fx.hover()
+			end
+		end
+	end)
+end
 
 function Kit.new<T>(class: string, props: { [string]: any }?, children: { Instance }?): any
 	local inst = Instance.new(class :: any)
@@ -230,25 +352,33 @@ function Kit.button(o: ButtonOpts, onClick: (() -> ())?): TextButton
 		ZIndex = b.ZIndex + 1,
 	})
 	local uiScale = Kit.new("UIScale", { Parent = b })
-	b.MouseEnter:Connect(function()
-		Sfx.Play("Hover", { volume = 0.35 })
-		Kit.tween(st, 0.15, { Transparency = 0 })
-		Kit.tween(fill, 0.15, { BackgroundTransparency = 0.7 })
-		Kit.tween(uiScale, 0.15, { Scale = 1.04 })
-		Kit.tween(text, 0.15, { TextColor3 = color:Lerp(Color3.new(1, 1, 1), 0.6) })
-	end)
-	b.MouseLeave:Connect(function()
-		Kit.tween(st, 0.2, { Transparency = 0.35 })
-		Kit.tween(fill, 0.2, { BackgroundTransparency = 0.88 })
-		Kit.tween(uiScale, 0.2, { Scale = 1 })
-		Kit.tween(text, 0.2, { TextColor3 = P.Text })
-	end)
-	b.MouseButton1Down:Connect(function()
-		Kit.tween(uiScale, 0.06, { Scale = 0.95 })
-	end)
-	b.MouseButton1Up:Connect(function()
-		Kit.tween(uiScale, 0.25, { Scale = 1.04 }, Enum.EasingStyle.Back)
-	end)
+	local hoverText = color:Lerp(Color3.new(1, 1, 1), 0.6)
+	Kit.feedback(b, {
+		hover = function()
+			Sfx.Play("Hover", { volume = 0.35 })
+			Kit.tween(st, 0.15, { Transparency = 0 })
+			Kit.tween(fill, 0.15, { BackgroundTransparency = 0.7 })
+			Kit.tween(uiScale, 0.15, { Scale = 1.04 })
+			Kit.tween(text, 0.15, { TextColor3 = hoverText })
+		end,
+		idle = function()
+			Kit.tween(st, 0.2, { Transparency = 0.35 })
+			Kit.tween(fill, 0.2, { BackgroundTransparency = 0.88 })
+			Kit.tween(uiScale, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+			Kit.tween(text, 0.2, { TextColor3 = P.Text })
+		end,
+		press = function()
+			-- Fingers cover the button, so the press state is bright as well as squashed.
+			Kit.tween(st, 0.06, { Transparency = 0 })
+			Kit.tween(fill, 0.06, { BackgroundTransparency = 0.55 })
+			Kit.tween(uiScale, 0.06, { Scale = 0.94 })
+			Kit.tween(text, 0.06, { TextColor3 = hoverText })
+		end,
+		release = function()
+			Kit.tween(fill, 0.2, { BackgroundTransparency = 0.7 })
+			Kit.tween(uiScale, 0.25, { Scale = 1.04 }, Enum.EasingStyle.Back)
+		end,
+	})
 	if onClick then
 		b.Activated:Connect(function()
 			Sfx.Play(o.sound or "Click")
@@ -405,6 +535,40 @@ function Kit.window(title: string, subtitle: string, size: Vector2, accent: Colo
 	end)
 	close.Name = "Close"
 
+	-- Bigger, invisible hit area around the close button, so it is easy to tap on phones.
+	local closeHit = Kit.new("TextButton", {
+		Name = "CloseHit",
+		Text = "",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.fromOffset(110, 74),
+		Visible = false,
+		ZIndex = 14,
+		Parent = frame,
+	})
+	closeHit.Activated:Connect(function()
+		Sfx.Play("Click")
+		w:Close()
+	end)
+
+	-- Fit: the window keeps its designed layout and is scaled as a whole so it always fits the screen
+	-- (92% x 88% of the viewport on phones, 96% x 94% elsewhere). Never enlarged on desktop.
+	local fit = 1
+	local function computeFit(mobile: boolean)
+		local scr = Kit.Screen()
+		local fw, fh = if mobile then 0.92 else 0.96, if mobile then 0.88 else 0.94
+		local f = math.min(scr.X * fw / size.X, scr.Y * fh / size.Y)
+		fit = math.clamp(f, 0.4, if mobile then 1.12 else 1)
+		closeHit.Visible = mobile
+		close.Size = if mobile then UDim2.fromOffset(46, 42) else UDim2.fromOffset(36, 36)
+		close.Position = if mobile then UDim2.new(1, -54, 0, 6) else UDim2.new(1, -46, 0, 9)
+		if w.open then
+			sc.Scale = fit
+		end
+	end
+	Kit.OnLayout(computeFit)
+
 	function w.Open(self: Window)
 		if self.open then
 			return
@@ -416,9 +580,9 @@ function Kit.window(title: string, subtitle: string, size: Vector2, accent: Colo
 		self.open = true
 		Sfx.Play("Open")
 		frame.Visible = true
-		sc.Scale = 0.85
+		sc.Scale = 0.85 * fit
 		frame.Position = UDim2.fromScale(0.5, 0.53)
-		Kit.tween(sc, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+		Kit.tween(sc, 0.35, { Scale = fit }, Enum.EasingStyle.Back)
 		Kit.tween(frame, 0.35, { Position = UDim2.fromScale(0.5, 0.5) })
 		Kit.glitch(t, 0.4)
 		if self.onOpen then
@@ -434,7 +598,7 @@ function Kit.window(title: string, subtitle: string, size: Vector2, accent: Colo
 			openWindow = nil
 		end
 		Sfx.Play("Close")
-		Kit.tween(sc, 0.18, { Scale = 0.9 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		Kit.tween(sc, 0.18, { Scale = 0.9 * fit }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		task.delay(0.16, function()
 			if not self.open then
 				frame.Visible = false
@@ -463,8 +627,9 @@ function Kit.scroll(parent: Instance, props: { [string]: any }?): ScrollingFrame
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1),
-		ScrollBarThickness = 4,
+		ScrollBarThickness = if Kit.IsMobile() then 8 else 4,
 		ScrollBarImageColor3 = P.Cyan,
+		ElasticBehavior = Enum.ElasticBehavior.WhenScrollable,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 		ScrollingDirection = Enum.ScrollingDirection.Y,

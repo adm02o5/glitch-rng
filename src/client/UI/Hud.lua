@@ -9,6 +9,7 @@ local Config = require(Shared.Config)
 local RNG = require(Shared.RNG)
 
 local Kit = require(script.Parent.Kit)
+local PlayerList = require(script.Parent.PlayerList)
 local Ctx = require(script.Parent.Parent.Ctx)
 local Sfx = require(script.Parent.Parent.Sfx)
 
@@ -36,6 +37,8 @@ local biomeTimer: TextLabel
 local biomeBar: Frame
 local biomePanel: Frame
 local toastHolder: Frame
+-- Pieces that move between the desktop and the phone layout.
+local L: { [string]: any } = {}
 local cdStart, cdLen = 0, 0
 
 function Hud.Cooldown(seconds: number)
@@ -137,6 +140,9 @@ local function buildRoll(root: Frame)
 		Hud.OnRoll:Fire()
 	end)
 	Hud.RollButton = roll
+	L.rollArea = holder
+	L.meter = meter
+	L.roll = roll
 	Kit.brackets(roll, P.Cyan, 16)
 	cooldownFill = new("Frame", {
 		Name = "Cooldown",
@@ -148,7 +154,7 @@ local function buildRoll(root: Frame)
 		Parent = roll,
 	})
 	Kit.corner(cooldownFill, 3)
-	Kit.label(roll, "[ R ]", 10, {
+	local keyHint = Kit.label(roll, "[ R ]", 10, {
 		TextColor3 = P.Dim,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -4),
@@ -156,6 +162,7 @@ local function buildRoll(root: Frame)
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = roll.ZIndex + 1,
 	})
+	L.keyHint = keyHint
 
 	-- Auto roll toggle.
 	local auto: TextButton
@@ -177,6 +184,7 @@ local function buildRoll(root: Frame)
 		Hud.OnAuto:Fire(Hud.Auto)
 	end)
 	Hud.AutoButton = auto
+	L.auto = auto
 
 	-- Quick roll toggle (skips the reel animation for low tiers).
 	local quick: TextButton
@@ -192,10 +200,71 @@ local function buildRoll(root: Frame)
 		local v = not (Ctx.Data.Settings and Ctx.Data.Settings.Quick)
 		Ctx.Setting("Quick", v)
 	end)
+	L.quick = quick
 	Ctx.Changed.Event:Connect(function(d)
 		local on = d.Settings and d.Settings.Quick
 		Kit.setButtonText(quick, if on then "QUICK: ON" else "QUICK: OFF")
 	end)
+end
+
+-- Phone menu tile: big glyph with a small caption, sized for a thumb (~46 px after scaling).
+local function menuTile(parent: Instance, order: number, glyph: string, text: string, color: Color3, onClick: () -> ())
+	local b = Kit.button({
+		text = glyph,
+		size = UDim2.fromOffset(84, 80),
+		color = color,
+		textSize = 30,
+		parent = parent,
+	}, onClick)
+	b.LayoutOrder = order
+	local lbl = b:FindFirstChild("Label") :: TextLabel
+	lbl.Size = UDim2.new(1, 0, 0, 50)
+	lbl.Position = UDim2.fromOffset(0, 6)
+	Kit.label(b, text, 13, {
+		FontFace = Kit.MonoBold,
+		TextColor3 = color:Lerp(Color3.new(1, 1, 1), 0.45),
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, -7),
+		Size = UDim2.new(1, 0, 0, 15),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = b.ZIndex + 1,
+	})
+	return b
+end
+
+local function buildMobileMenu(root: Frame)
+	local grid = new("Frame", {
+		Name = "MobileMenu",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0),
+		Size = UDim2.fromOffset(176, 256),
+		Visible = false,
+		Parent = root,
+	})
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(84, 80),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		Parent = grid,
+	})
+	local function win(name: string): () -> ()
+		return function()
+			Ctx.Toggle(name)
+		end
+	end
+	menuTile(grid, 1, "◈", "AURAS", P.Cyan, win("Inventory"))
+	menuTile(grid, 2, "▤", "INDEX", P.Magenta, win("Index"))
+	menuTile(grid, 3, "▶", "SCRIPTS", P.Lime, win("Scripts"))
+	menuTile(grid, 4, "⚙", "SETUP", P.Dim, win("Settings"))
+	-- No Tab key on phones: the player list gets its own tile.
+	menuTile(grid, 5, "☰", "PLAYERS", P.Amber, function()
+		PlayerList.Toggle()
+	end)
+	if Config.Admins[game:GetService("Players").LocalPlayer.UserId] then
+		menuTile(grid, 6, "#", "ADMIN", P.Red, win("Admin"))
+	end
+	L.mobileMenu = grid
 end
 
 local function buildMenu(root: Frame)
@@ -216,6 +285,7 @@ local function buildMenu(root: Frame)
 		menuButton(list, 5, "#", "ADMIN", P.Red, "Admin")
 		list.Size = UDim2.fromOffset(150, 330)
 	end
+	L.menu = list
 end
 
 local function buildBiome(root: Frame)
@@ -251,6 +321,7 @@ local function buildBiome(root: Frame)
 		Size = UDim2.new(1, 0, 0, 2),
 		Parent = biomePanel,
 	})
+	L.biome = biomePanel
 end
 
 local function buildStats(root: Frame)
@@ -269,6 +340,7 @@ local function buildStats(root: Frame)
 		Parent = panel,
 	})
 	panel.Size = UDim2.fromOffset(250, 0)
+	L.stats = panel
 	new("UIPadding", {
 		PaddingLeft = UDim.new(0, 14),
 		PaddingRight = UDim.new(0, 14),
@@ -323,6 +395,69 @@ local function refreshBoosts(d: { [string]: any })
 	end
 end
 
+-- Desktop layout is the original one. The phone layout keeps everything clear of the Roblox top bar
+-- (top-left buttons), the move thumbstick (bottom-left) and the jump button (bottom-right), with
+-- every control at least ~44 px tall on screen.
+local function setText(b: TextButton, size: number)
+	local l = b:FindFirstChild("Label") :: TextLabel?
+	if l then
+		l.TextSize = size
+	end
+end
+
+local function layout(mobile: boolean)
+	if not L.roll then
+		return
+	end
+	local inset = Kit.Inset()
+	L.menu.Visible = not mobile
+	L.mobileMenu.Visible = mobile
+	L.keyHint.Visible = not mobile
+	if mobile then
+		L.rollArea.Size = UDim2.fromOffset(660, 150)
+		L.rollArea.Position = UDim2.new(0.5, 0, 1, -14)
+		L.roll.Size = UDim2.fromOffset(300, 96)
+		setText(L.roll, 38)
+		L.auto.Size = UDim2.fromOffset(150, 80)
+		L.auto.Position = UDim2.new(0.5, 166, 1, -8)
+		L.quick.Size = UDim2.fromOffset(150, 80)
+		L.quick.Position = UDim2.new(0.5, -166, 1, -8)
+		setText(L.auto, 17)
+		setText(L.quick, 17)
+		L.meter.Size = UDim2.fromOffset(360, 30)
+		-- Stats sit under the top bar on the left; the thumbstick owns the bottom-left corner.
+		L.stats.AnchorPoint = Vector2.new(0, 0)
+		L.stats.Position = UDim2.fromOffset(16, inset + 8)
+		-- Biome banner is centred in the top bar row, between the Roblox buttons.
+		L.biome.Position = UDim2.new(0.5, 0, 0, 6)
+		L.bits.Position = UDim2.new(1, -16, 0, inset + 4)
+		L.rolls.Position = UDim2.new(1, -16, 0, inset + 28)
+		-- Menu tiles: right edge, above the jump button.
+		L.mobileMenu.Position = UDim2.new(1, -16, 0, inset + 58)
+		L.toasts.Position = UDim2.new(0.5, 0, 0, 92)
+	else
+		L.rollArea.Size = UDim2.fromOffset(480, 140)
+		L.rollArea.Position = UDim2.new(0.5, 0, 1, -24)
+		L.roll.Size = UDim2.fromOffset(240, 72)
+		setText(L.roll, 30)
+		L.auto.Size = UDim2.fromOffset(110, 50)
+		L.auto.Position = UDim2.new(0.5, 132, 1, -11)
+		L.quick.Size = UDim2.fromOffset(110, 50)
+		L.quick.Position = UDim2.new(0.5, -132, 1, -11)
+		setText(L.auto, 14)
+		setText(L.quick, 14)
+		L.meter.Size = UDim2.fromOffset(300, 30)
+		L.stats.AnchorPoint = Vector2.new(0, 1)
+		L.stats.Position = UDim2.new(0, 22, 1, -24)
+		L.biome.Position = UDim2.new(0.5, 0, 0, 14)
+		L.bits.Position = UDim2.new(1, -24, 0, 46)
+		L.rolls.Position = UDim2.new(1, -24, 0, 70)
+		L.toasts.Position = UDim2.new(0.5, 0, 0, 100)
+	end
+	-- Phone: the player list opens left of the menu tiles instead of on top of them.
+	PlayerList.Layout(mobile, if mobile then 16 + 176 + 12 else 20, if mobile then inset + 58 else 96)
+end
+
 function Hud.Start()
 	local root = new("Frame", {
 		Name = "Hud",
@@ -333,6 +468,7 @@ function Hud.Start()
 	Hud.Root = root
 	buildRoll(root)
 	buildMenu(root)
+	buildMobileMenu(root)
 	buildBiome(root)
 	buildStats(root)
 
@@ -369,6 +505,10 @@ function Hud.Start()
 		Size = UDim2.fromOffset(240, 20),
 		TextXAlignment = Enum.TextXAlignment.Right,
 	})
+	L.bits = bitsL
+	L.rolls = rollCount
+	L.toasts = toastHolder
+	Kit.OnLayout(layout)
 	local lastBits = -1
 	Ctx.Changed.Event:Connect(function(d)
 		local b = d.Bits or 0

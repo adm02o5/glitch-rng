@@ -21,12 +21,16 @@ local PlayerList = {}
 local ROW_H = 40
 local WIDTH = 330
 
-local panel: Frame
+local panel: Frame? = nil
 local list: Frame
 local countL: TextLabel
 local rows: { [Player]: Frame } = {}
 local shown = true
 local dirty = true
+-- Where the panel docks: right margin and top, set by the HUD layout (phones dock it left of the menu).
+local dockRight, dockTop = 20, 96
+local isMobile = false
+local userToggled = false
 
 local function rolls(plr: Player): number
 	local ls = plr:FindFirstChild("leaderstats")
@@ -145,11 +149,39 @@ local function watch(plr: Player)
 	dirty = true
 end
 
+local function place(animated: boolean)
+	if not panel then
+		return
+	end
+	local pos = if shown then UDim2.new(1, -dockRight, 0, dockTop) else UDim2.new(1, WIDTH + 40, 0, dockTop)
+	if animated then
+		Kit.tween(panel, 0.3, { Position = pos })
+	else
+		panel.Position = pos
+	end
+end
+
 local function setShown(v: boolean)
 	shown = v
-	Kit.tween(panel, 0.3, {
-		Position = if v then UDim2.new(1, -20, 0, 96) else UDim2.new(1, WIDTH + 40, 0, 96),
-	})
+	place(true)
+end
+
+-- Tab on keyboards; the PLAYERS tile on phones.
+function PlayerList.Toggle()
+	userToggled = true
+	setShown(not shown)
+end
+
+-- Called by the HUD whenever the layout changes.
+function PlayerList.Layout(mobile: boolean, right: number, top: number)
+	dockRight, dockTop = right, top
+	local changed = mobile ~= isMobile
+	isMobile = mobile
+	if panel and changed and not userToggled then
+		-- Phones start with the list closed (it would cover the world view); desktop starts open.
+		shown = not mobile
+	end
+	place(panel ~= nil and not changed)
 end
 
 function PlayerList.Start()
@@ -222,10 +254,11 @@ function PlayerList.Start()
 			setShown(not shown)
 		end
 	end)
-	-- Hidden by default on small (phone) screens.
-	if workspace.CurrentCamera.ViewportSize.X < 900 then
-		setShown(false)
+	-- Hidden by default on phones and small screens.
+	if isMobile or workspace.CurrentCamera.ViewportSize.X < 900 then
+		shown = false
 	end
+	place(false)
 
 	task.spawn(function()
 		while true do

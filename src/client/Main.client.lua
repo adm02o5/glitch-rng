@@ -18,6 +18,7 @@ local AuraRender = require(script.Parent.AuraRender)
 local Prompts = require(script.Parent.Prompts)
 local Announce = require(script.Parent.Announce)
 local WorldFX = require(script.Parent.WorldFX)
+local Tutorial = require(script.Parent.Tutorial)
 local Sounds = require(ReplicatedStorage.Shared.Sounds)
 
 pcall(function()
@@ -135,3 +136,6 @@ if first then
 	Ctx.Set(first)
 end
 updateMusic()
+
+-- First-time players get the guided tour once their data has loaded.
+Tutorial.Auto()

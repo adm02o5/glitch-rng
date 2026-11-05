@@ -56,6 +56,9 @@ local function buildCard()
 		Size = UDim2.new(1, 0, 0, 80),
 		ZIndex = 3,
 	})
+	-- Long names shrink to fit the card instead of running off narrow (phone) screens.
+	nameL.TextScaled = true
+	new("UITextSizeConstraint", { MaxTextSize = 64, MinTextSize = 24, Parent = nameL })
 	nameGrad = new("UIGradient", { Rotation = 90, Parent = nameL })
 	nameStroke = new("UIStroke", { Thickness = 3, Color = Color3.new(0, 0, 0), Transparency = 0.15, Parent = nameL })
 	chanceL = Kit.label(card, "", 22, {

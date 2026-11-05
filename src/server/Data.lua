@@ -40,7 +40,7 @@ local function default(): Profile
 		NextRolls = {},
 		Quest = { i = 1, n = 0 },
 		Best = nil,
-		Settings = { Skip = 0, Sfx = 1, Music = 0.6, Others = true, Quick = false },
+		Settings = { Skip = 0, Sfx = 1, Music = 0.6, Others = true, Quick = false, Tut = false },
 		Lock = nil,
 	}
 end

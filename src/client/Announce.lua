@@ -47,7 +47,9 @@ local function banner(name: string, a: Config.Aura, tier: Config.Tier, global: b
 		Position = UDim2.fromOffset(16, 26),
 		Size = UDim2.new(1, -32, 0, 30),
 		TextXAlignment = Enum.TextXAlignment.Center,
+		TextScaled = true, -- long names shrink instead of spilling out of the banner
 	})
+	new("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 12, Parent = l })
 	l.Text = string.format(
 		'%s just rolled <font color="%s"><b>%s</b></font>  <font color="#788CA0">%s</font>',
 		name,

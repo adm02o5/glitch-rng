@@ -340,7 +340,7 @@ function Actions.UseScript(plr, p, id)
 	return true
 end
 
-local SETTINGS = { Skip = "number", Sfx = "number", Music = "number", Others = "boolean", Quick = "boolean" }
+local SETTINGS = { Skip = "number", Sfx = "number", Music = "number", Others = "boolean", Quick = "boolean", Tut = "boolean" }
 
 function Actions.Setting(plr, p, args)
 	if typeof(args) ~= "table" or SETTINGS[args.k] == nil or typeof(args.v) ~= SETTINGS[args.k] then

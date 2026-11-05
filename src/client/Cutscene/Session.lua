@@ -38,7 +38,13 @@ Session.SKIP = { "skip" } -- unique error value used to unwind a scene when the 
 local function uiScale(): number
 	local cam = workspace.CurrentCamera
 	local v = if cam then cam.ViewportSize else Vector2.new(1920, 1080)
-	return math.clamp(math.min(v.X / 1600, v.Y / 900), 0.55, 1.15)
+	local k = math.min(v.X / 1600, v.Y / 900)
+	if Kit.IsMobile() then
+		-- Phones are held close and are short: text a touch larger than the pure ratio (like the HUD),
+		-- but capped so panels still fit inside ~375 px of height.
+		return math.clamp(k * 1.3, 0.55, 0.85)
+	end
+	return math.clamp(k, 0.55, 1.15)
 end
 
 local function lazyModule(parent: Instance?, name: string): any
@@ -173,7 +179,7 @@ function Session.new(aura: Config.Aura, info: Info, level: number): any
 		)
 		local hint = S:text({
 			Name = "SkipHint",
-			Text = "CLICK TO SKIP  >>",
+			Text = if Kit.IsMobile() then "TAP TO SKIP  >>" else "CLICK TO SKIP  >>",
 			FontFace = Kit.MonoBold,
 			TextSize = math.floor(13 * S.vs + 0.5),
 			TextColor3 = P.Dim,
@@ -500,6 +506,12 @@ function Session.hideHud(S: any)
 	if S.hudSaved == nil then
 		S.hudSaved = Kit.Gui.Enabled
 		Kit.Gui.Enabled = false
+		-- Phones: hide the thumbstick / jump button too, so the cutscene is full-screen.
+		pcall(function()
+			local GuiService = game:GetService("GuiService")
+			S.touchSaved = GuiService.TouchControlsEnabled
+			GuiService.TouchControlsEnabled = false
+		end)
 	end
 end
 
@@ -507,6 +519,12 @@ function Session.restoreHud(S: any)
 	if S.hudSaved ~= nil then
 		Kit.Gui.Enabled = S.hudSaved
 		S.hudSaved = nil
+		if S.touchSaved ~= nil then
+			pcall(function()
+				game:GetService("GuiService").TouchControlsEnabled = S.touchSaved
+			end)
+			S.touchSaved = nil
+		end
 	end
 end
 

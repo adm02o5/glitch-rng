@@ -155,15 +155,21 @@ function W.auraTile(parent: Instance, a: Config.Aura, count: number?, known: boo
 		})
 	end
 	local sc = new("UIScale", { Parent = b })
-	b.MouseEnter:Connect(function()
-		Kit.tween(st, 0.12, { Transparency = 0 })
-		Kit.tween(sc, 0.12, { Scale = 1.05 })
-		Sfx.Play("Hover", { volume = 0.25 })
-	end)
-	b.MouseLeave:Connect(function()
-		Kit.tween(st, 0.15, { Transparency = 0.55 })
-		Kit.tween(sc, 0.15, { Scale = 1 })
-	end)
+	Kit.feedback(b, {
+		hover = function()
+			Kit.tween(st, 0.12, { Transparency = 0 })
+			Kit.tween(sc, 0.12, { Scale = 1.05 })
+			Sfx.Play("Hover", { volume = 0.25 })
+		end,
+		idle = function()
+			Kit.tween(st, 0.15, { Transparency = 0.55 })
+			Kit.tween(sc, 0.2, { Scale = 1 })
+		end,
+		press = function()
+			Kit.tween(st, 0.06, { Transparency = 0 })
+			Kit.tween(sc, 0.06, { Scale = 0.95 })
+		end,
+	})
 	b.Activated:Connect(function()
 		Sfx.Play("Click")
 		onClick()
@@ -315,8 +321,9 @@ function W.slider(parent: Instance, value: number, color: Color3, onChange: (num
 	local hit = new("TextButton", {
 		Text = "",
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 30),
-		Position = UDim2.fromOffset(0, -10),
+		-- Taller hit strip on phones so the slider is easy to grab with a thumb.
+		Size = UDim2.new(1, 0, 0, if Kit.IsMobile() then 50 else 30),
+		Position = UDim2.fromOffset(0, if Kit.IsMobile() then -20 else -10),
 		Parent = track,
 	})
 	hit.MouseButton1Down:Connect(function(x)
@@ -324,7 +331,8 @@ function W.slider(parent: Instance, value: number, color: Color3, onChange: (num
 		set(x)
 	end)
 	UserInputService.InputChanged:Connect(function(input)
-		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local t = input.UserInputType
+		if dragging and (t == Enum.UserInputType.MouseMovement or t == Enum.UserInputType.Touch) then
 			set(input.Position.X)
 		end
 	end)

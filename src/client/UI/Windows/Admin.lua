@@ -80,6 +80,13 @@ return function(): any
 		TextXAlignment = Enum.TextXAlignment.Right,
 		Visible = false,
 	})
+	-- Phones: bigger stop button, docked left of the HUD menu tiles so it covers nothing.
+	Kit.OnLayout(function(mobile: boolean)
+		local inset = Kit.Inset()
+		stop.Size = if mobile then UDim2.fromOffset(190, 76) else UDim2.fromOffset(170, 44)
+		stop.Position = if mobile then UDim2.new(1, -208, 0, inset + 58) else UDim2.new(1, -24, 0, 110)
+		nowPlaying.Position = if mobile then UDim2.new(1, -208, 0, inset + 142) else UDim2.new(1, -24, 0, 160)
+	end)
 
 	local function burst(id: string)
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
