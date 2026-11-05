@@ -57,10 +57,12 @@ local function cut(t) -- обрезка по целым символам UTF-8 (
 	return string.sub(t, 1, (utf8.offset(t, 0, 700) or 701) - 1)
 end
 remote.OnServerEvent:Connect(function(_, msg) print("[CLIENT] " .. cut(msg)) end)
+%s
 task.wait(%d)
 %s
 return "done"
-""" % (seconds, server_code)
+""" % (("task.spawn(function()\n" + server_code + "\nend)") if server_code.startswith("--@start") else "",
+       seconds, "" if server_code.startswith("--@start") else server_code)
 raw = studio("run_script_in_play_mode", {"mode": "start_play", "timeout": seconds + EXTRA, "code": server})
 print(studio("run_code", {"command": "local s = game.StarterPlayer.StarterPlayerScripts:FindFirstChild('ZZ_Relay') if s then s:Destroy() end print('relay removed')"}).strip())
 try:

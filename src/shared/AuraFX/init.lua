@@ -6,8 +6,10 @@
 --   AuraFX.Burst(position, auraId, scale?)         (one-shot reveal explosion, ~3 s)
 --   AuraFX.Has(auraId) -> boolean
 --
--- Auras of 1 in 1,000 and rarer also animate the body (AuraFX/Poses: a per-aura idle stance and
--- walk gait as procedural Motor6D offsets); levitating sets lift every root-anchored effect.
+-- Every aura also animates the body (AuraFX/Poses: Blender-authored idle / walk / reaction clips,
+-- baked into AuraFX/Anims); levitating sets lift every root-anchored effect.
+-- Pose and VFX of one aura share an AuraFX/Sync bus (c.bus): gestures fire effects, effects
+-- make the body react, and both run on the same beat.
 --
 -- Everything lives in a Folder "AuraFX" inside the character (one sub-folder per handle).
 -- Anchored parts are driven from one shared RenderStepped loop with Workspace:BulkMoveTo.
@@ -76,7 +78,7 @@ local function attachWith(
 		if poseId and Poses.has(poseId) then
 			stopPose = Poses.start(character, poseId, function(h: number)
 				c.lift = h
-			end)
+			end, c.bus)
 		end
 		local ok, err = pcall(function()
 			build(c)

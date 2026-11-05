@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Core = require(script.Parent.Core)
 local B = require(script.Parent.Blocks)
+local Sync = require(script.Parent.Sync)
 
 type Ctx = Core.Ctx
 
@@ -669,8 +670,19 @@ A.NeonPulse = function(c: Ctx)
 	end
 	B.circle(c, { radius = r, color = c.c1, width = 0.12, at = CF(0, y0, 0), tr = 0.25 })
 	B.circle(c, { radius = r - 0.5, color = c.c1, width = 0.1, at = CF(0, y1, 0), tr = 0.3 })
-	local function pulsePos(t: number): number
-		return (t * 0.7) % 1.3 - 0.15
+	-- Synced to the Blender animation: every "beat" marker (heartbeat LUB in the idle clip,
+	-- each footfall in the walk clip) launches a pulse up the tubes and a floor shock ring;
+	-- the "dub" marker flashes the light. Falls back to a 1.6 s beat if no clip is playing.
+	local TRAVEL = 1.05
+	local function beatAge(): number
+		local s = Sync.since(c.bus, "beat")
+		if s == math.huge then
+			return Sync.age(c.bus) % 1.6
+		end
+		return s
+	end
+	local function pulsePos(_t: number): number
+		return beatAge() / TRAVEL - 0.15
 	end
 	local pr = B.circle(c, {
 		radius = r + 0.1,
@@ -694,8 +706,8 @@ A.NeonPulse = function(c: Ctx)
 		anchor = function()
 			return CF(0, g + 0.05, 0)
 		end,
-		radiusFn = function(t)
-			return 2 + ((t * 0.7) % 1.3) / 1.3 * 2.8
+		radiusFn = function(_t)
+			return 2 + math.clamp(beatAge() / 0.9, 0, 1) * 2.8
 		end,
 	})
 	local feet = Core.att(c, c.root, CF(0, y0, 0))
@@ -747,9 +759,10 @@ A.NeonPulse = function(c: Ctx)
 		end
 		local inside = u >= 0 and u <= 1
 		B.setBeamsTransparency(pr.beams, if inside then 0.05 else 1)
-		B.setBeamsTransparency(beat.beams, 0.1 + ((t * 0.7) % 1.3) / 1.3 * 0.9)
+		B.setBeamsTransparency(beat.beams, 0.1 + math.clamp(beatAge() / 0.9, 0, 1) * 0.9)
 		pa.Position = V(0, y0 + math.clamp(u, 0, 1) * (y1 - y0), 0)
-		light.Brightness = 1.6 + (1 - math.abs(u - 0.5) * 2) * 2.4
+		local thump = Sync.env(c.bus, "beat", 9) + Sync.env(c.bus, "dub", 12) * 0.6
+		light.Brightness = 1.6 + (if inside then (1 - math.abs(u - 0.5) * 2) * 2.4 else 0) + thump * 2.2
 	end)
 end
 

@@ -8,6 +8,7 @@
 
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local Sync = require(script.Parent.Sync)
 
 local Core = {}
 
@@ -72,6 +73,7 @@ export type Ctx = {
 	cleanups: { () -> () },
 	conns: { RBXScriptConnection },
 	history: History?,
+	bus: Sync.Bus, -- shared with the aura's pose (AuraFX/Sync): events + values both ways
 }
 
 ---------------------------------------------------------------- small helpers
@@ -254,6 +256,31 @@ function Core.bodyPart(char: Model, ...: string): BasePart?
 	return nil
 end
 
+-- Attachment at the tip of a limb, riding the animated body part (so particles / beams follow
+-- every pose exactly):  "rhand" | "lhand" | "rfoot" | "lfoot" | "head" (crown) | "chest".
+-- `off` is an extra offset in that part's space. Works on R6 and R15.
+local TIPS: { [string]: { r6: string, r15: string, y6: number, y15: number } } = {
+	rhand = { r6 = "Right Arm", r15 = "RightHand", y6 = -1.05, y15 = -0.2 },
+	lhand = { r6 = "Left Arm", r15 = "LeftHand", y6 = -1.05, y15 = -0.2 },
+	rfoot = { r6 = "Right Leg", r15 = "RightFoot", y6 = -1, y15 = -0.2 },
+	lfoot = { r6 = "Left Leg", r15 = "LeftFoot", y6 = -1, y15 = -0.2 },
+	head = { r6 = "Head", r15 = "Head", y6 = 0.6, y15 = 0.6 },
+	chest = { r6 = "Torso", r15 = "UpperTorso", y6 = 0.3, y15 = 0.1 },
+}
+
+function Core.tip(c: Ctx, which: string, off: CFrame?): Attachment?
+	local d = TIPS[which]
+	if not d then
+		return nil
+	end
+	local part = Core.bodyPart(c.char, if c.r15 then d.r15 else d.r6, d.r6, d.r15)
+	if not part then
+		return nil
+	end
+	local y = if c.r15 then d.y15 else d.y6
+	return Core.att(c, part, CFrame.new(0, y, 0) * (off or CFrame.identity))
+end
+
 -- Visual size of the head (R6 heads are 2x1x1 parts drawn by a 1.25-scale head mesh).
 function Core.headSize(head: BasePart): Vector3
 	local m = head:FindFirstChildWhichIsA("SpecialMesh")
@@ -366,6 +393,7 @@ function Core.newCtx(char: Model, name: string, c1: Color3, c2: Color3, tier: nu
 		cleanups = {},
 		conns = {},
 		history = nil,
+		bus = Sync.new(),
 	}
 	table.insert(
 		c.conns,

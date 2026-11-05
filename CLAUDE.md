@@ -27,6 +27,19 @@ Agents: at most 2 at a time, effort medium.
 - Admin panel: `Config.Admins` (UserIds; adm02o5 = 1626125898, Pois0nTaster = 3041886047), server actions AdminWear/AdminBiome/AdminGive,
   `Roller.Preview(aura, first)` plays reel + cutscene + reveal locally, `UI/Windows/Admin.lua` (demo mode plays all).
 
+## Animations (STRICTLY in Blender — user rule)
+- Character/aura animations are keyframed in Blender, never written as procedural Luau poses.
+- `tools/blender/anim/lib.py` = exact R6 rig + key/marker/loop/noise helpers + check + export + preview;
+  `tools/blender/anim/auras/<AuraId>.py` builds one aura's clips; `tools/blender/anim/run.sh <Id>|--all`
+  (headless Steam Blender 5.2) → `art/anims/<Id>.blend`, `src/shared/AuraFX/Anims/<Id>.lua`,
+  `build/anim_preview/<Id>_<clip>.png`. `run.sh --blend art/anims/X.blend` re-exports a hand-edited file.
+- Runtime: `AuraFX/Clips.lua` (loader/sampler), `AuraFX/Poses.lua` (runner: idle by attach time, walk by
+  gait phase, one-shot reactions on bus triggers, foot solver, levitation), `AuraFX/Sync.lua` = per-aura bus
+  shared by pose and VFX (`c.bus`): Blender markers `fx:<event>[:<arg>]` → Sync.emit; runner emits
+  step/jump/land and publishes move/spd/ph/air/lift. VFX builders read `Sync.since/env/phase(c.bus, ...)`.
+- Test: `cd tools && python3 playtest.py 44 - tests/sync_client.lua` (logs marker counts per aura).
+  In this Studio env hum:Move does not move the character; the test sets AssemblyLinearVelocity instead.
+
 ## Audio
 - `python3 tools/sfx.py [Names...]` synthesizes all sounds (numpy + ffmpeg, helpers in tools/audio/) → `build/sfx/*.ogg`.
 - `python3 tools/upload_sounds.py` uploads them as Audio to group 34355563 and writes ids into Sounds.lua.
