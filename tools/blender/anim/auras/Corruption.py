@@ -87,10 +87,10 @@ def plant(clip, extra=None, passes=3):
             want = ycurve.evaluate(f) - low + extra.get(f, 0.0)
             kp = next((k for k in ycurve.keyframe_points if abs(k.co.x - f) < 1e-3), None)
             if kp is None:
-                prev = [k for k in ycurve.keyframe_points if k.co.x < f]
+                prev = [k.interpolation for k in ycurve.keyframe_points if k.co.x < f]
                 kp = ycurve.keyframe_points.insert(f, want)
-                if prev:
-                    kp.interpolation = prev[-1].interpolation
+                if prev and prev[-1]:
+                    kp.interpolation = prev[-1]
             dy = want - kp.co.y
             kp.co.y = want
             kp.handle_left.y += dy
@@ -262,6 +262,8 @@ for i, p in enumerate(jerks):
 wrench.marker(1, "wrench")
 wrench.key(7, ease="INOUT", root=(2, 4, -2), neck=(4, -6, 8), rs=(-4, 0, 8), ls=(2, 0, -4))
 wrench.pose(24, Z)
+plant(wrench)
+unsink(wrench)
 
 crash = A.clip("crash", seconds=0.7, trigger="land", mode="add", blend_in=0.02, blend_out=0.2)
 crash.pose(0, Z)

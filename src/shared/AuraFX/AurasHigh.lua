@@ -58,15 +58,36 @@ local A: { [string]: (Ctx) -> () } = {}
 ---------------------------------------------------------------- LEGENDARY
 
 -- server-rack panels with blinking LEDs orbiting, cable beams
--- parts ~65, emitters 4
+-- parts ~70, emitters 8
+-- Synced to the Blender animation (tools/blender/anim/auras/Mainframe.py, grounded set, idle 5.0 s).
+-- The body is the operator-machine; the racks obey it:
+--   "scan" "L"|"R"   head servo snaps to a side  -> the racks on that side light every LED, status
+--                                                 lights blaze, a scan laser leaves the eyes, sparks
+--   "type" "R"|"L"   a fist taps the keyboard    -> the next rack (round robin) rewrites its LED row,
+--                                                 fires a data pulse down its cable, hub sparks
+--   "exec"           fist hammer + right stomp  -> EXECUTE: all five pulses fire at once, the racks
+--                                                 kick outward, uplinks shoot to 3x height, a cyan shock
+--                                                 ring from the right foot, sigil disc + light flash
+--   "vent"           the exhale                 -> coolant steam + sparks burst from the back hub
+--   "step" (free)    each heavy footfall        -> a small shock ring from that foot, the racks dip
+--   "land" (free)    landing (body: "thud")     -> a big shock ring, the racks slam down
+--   "overload" (VFX -> body, every 15-22 s standing still): LEDs flicker red, OVERLOAD title; the
+--               body's reaction glitches, its "down" marker blacks everything out (LEDs, uplinks,
+--               pulses, light), "reboot" -> white flash, LEDs come back green, REBOOT OK.
+-- Cable data waves: Sync.phase(bus, 5.0) * 3 = three staggered waves per idle loop.
 A.Mainframe = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
+	local IDLE = 5.0
 	local shell = Color3.fromRGB(10, 16, 26)
 	local green = Color3.fromRGB(80, 255, 140)
 	local amber = Color3.fromRGB(255, 176, 32)
+	local red = Color3.fromRGB(255, 40, 50)
+	local hot = WHITE:Lerp(c.c1, 0.3)
 	local ledCols = { c.c1, green, amber, Color3.fromRGB(20, 30, 40) }
 	local NR, RR = 5, 4.4
 	local RW, RH, RD = 1.3, 2.5, 0.7
+	local PULSE_DUR = 1.1
 	type Rack = {
 		body: BasePart,
 		bars: { BasePart },
@@ -76,7 +97,12 @@ A.Mainframe = function(c: Ctx)
 		a0n: Attachment,
 		up0: Attachment,
 		up1: Attachment,
+		uplink: Beam,
 		pulse: BasePart,
+		pT: number, -- launch time of the data pulse riding the cable
+		pDur: number,
+		flash: number, -- LEDs blaze until this time
+		ang: number,
 	}
 	local hubAtt = Core.att(c, nil, CF(0, c.chestY, 0.8))
 	local racks: { Rack } = {}
@@ -107,20 +133,6 @@ A.Mainframe = function(c: Ctx)
 		end
 		local a0, a0n = Core.att(c), Core.att(c)
 		local up0, up1 = Core.att(c), Core.att(c)
-		racks[i] = {
-			body = body,
-			bars = {
-				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
-				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
-			},
-			leds = leds,
-			status = Core.part(c, V(0.14, 0.14, 0.05), c.c1),
-			a0 = a0,
-			a0n = a0n,
-			up0 = up0,
-			up1 = up1,
-			pulse = Core.part(c, V(0.3, 0.3, 0.3), WHITE, NEON, 0, BALL),
-		}
 		Core.beam(
 			c,
 			a0,
@@ -138,7 +150,7 @@ A.Mainframe = function(c: Ctx)
 			{ c0 = 1.6, c1 = 1.6, segs = 16, tex = T.square, texLen = 0.4, texSpeed = 3, zoff = 0.02 }
 		)
 		-- data uplink column above every rack
-		Core.beam(
+		local uplink = Core.beam(
 			c,
 			up0,
 			up1,
@@ -146,10 +158,29 @@ A.Mainframe = function(c: Ctx)
 			0.35,
 			{ w1 = 0.05, tr = ns(0.25, 1), tex = T.square, texLen = 0.8, texSpeed = 4, segs = 2 }
 		)
+		racks[i] = {
+			body = body,
+			bars = {
+				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
+				Core.part(c, V(RW + 0.06, 0.09, RD + 0.06), c.c1),
+			},
+			leds = leds,
+			status = Core.part(c, V(0.14, 0.14, 0.05), c.c1),
+			a0 = a0,
+			a0n = a0n,
+			up0 = up0,
+			up1 = up1,
+			uplink = uplink,
+			pulse = Core.part(c, V(0.3, 0.3, 0.3), WHITE, NEON, 0, BALL),
+			pT = -math.huge,
+			pDur = PULSE_DUR,
+			flash = 0,
+			ang = 0,
+		}
 	end
 	local hub = Core.part(c, V(0.9, 0.7, 0.3), Color3.fromRGB(20, 26, 36), METAL)
 	local hubStrip = Core.part(c, V(0.8, 0.08, 0.32), c.c1)
-	B.sigil(
+	local sig = B.sigil(
 		c,
 		{
 			radius = 5.6,
@@ -174,6 +205,32 @@ A.Mainframe = function(c: Ctx)
 		spread = V2(60, 60),
 		dir = Enum.NormalId.Back,
 	})
+	-- coolant vent (the "vent" exhale)
+	local steam = Core.emit(back, {
+		tex = T.glow,
+		color = cs(WHITE, c.c1),
+		size = ns(0.6, 2.6),
+		transp = ns(0.35, 1),
+		rate = 0,
+		life = nr(0.7, 1.2),
+		speed = nr(4, 7),
+		spread = V2(25, 25),
+		drag = 2.5,
+		accel = V(0, 3, 0),
+		dir = Enum.NormalId.Back,
+	})
+	local ventSparks = Core.emit(back, {
+		tex = T.spark,
+		color = cs(WHITE, c.c1),
+		size = ns(0.45, 0),
+		rate = 0,
+		life = nr(0.3, 0.6),
+		speed = nr(6, 10),
+		spread = V2(40, 40),
+		drag = 3,
+		dir = Enum.NormalId.Back,
+		bright = 3,
+	})
 	Core.emit(Core.att(c, c.torso), {
 		tex = T.glow,
 		color = cs(c.c1, c.c2),
@@ -183,7 +240,7 @@ A.Mainframe = function(c: Ctx)
 		life = nr(0.9, 1.3),
 		locked = true,
 	})
-	B.floorEmit(c, 5, {
+	local floorFx = B.floorEmit(c, 5, {
 		tex = T.square,
 		color = cs(c.c1, green),
 		size = ns(0.24, 0),
@@ -202,76 +259,314 @@ A.Mainframe = function(c: Ctx)
 		speed = nr(3, 5),
 		spread = V2(180, 180),
 	})
-	B.rootLight(c, c.c1, 2.4, 16, { pulse = 1.6, amp = 1.2 })
+	local light = B.rootLight(c, c.c1, 2.4, 16, { pulse = 1.6, amp = 1.2 })
+	-- body anchors: scan laser from the eyes, shock rings from the feet
+	local headTip = Core.tip(c, "head")
+	local feet = { R = Core.tip(c, "rfoot"), L = Core.tip(c, "lfoot") }
+	local headFx = headTip
+		and Core.emit(headTip, {
+			tex = T.square,
+			color = cs(WHITE, c.c1),
+			size = ns(0.2, 0),
+			rate = 0,
+			life = nr(0.2, 0.4),
+			speed = nr(5, 9),
+			spread = V2(25, 25),
+			dir = Enum.NormalId.Front,
+			drag = 3,
+			rot = nr(0, 0),
+			bright = 3,
+		})
+	local laser = Core.part(c, V(0.07, 0.07, 5), c.c1, NEON, 1)
+	-- pooled shock rings on the floor (stomps / steps / landing)
+	type Shock = { t0: number, k: number, at: Vector3 }
+	local shocks: { Shock } = {}
+	for i = 1, 3 do
+		local s: Shock = { t0 = -math.huge, k = 1, at = V(0, c.groundY + 0.06, 0) }
+		local cir = B.circle(c, {
+			radius = 0.3,
+			color = c.c1,
+			color2 = WHITE,
+			width = 0.3,
+			tr = 1,
+			n = 6,
+			anchor = function()
+				return CF(s.at)
+			end,
+			radiusFn = function()
+				local age = os.clock() - s.t0
+				return 0.3 + (1 - math.exp(-age * 5)) * 6 * s.k
+			end,
+		})
+		Core.on(c, function(t)
+			local age = t - s.t0
+			B.setBeamsTransparency(cir.beams, if age > 0.8 then 1 else 0.05 + (age / 0.8) ^ 2 * 0.95)
+		end)
+		shocks[i] = s
+	end
+	local nextShock = 1
+	local function shock(k: number, att: Attachment?)
+		local s = shocks[nextShock]
+		nextShock = nextShock % #shocks + 1
+		s.t0 = os.clock()
+		s.k = k
+		local x, z = 0, 0
+		if att and att.Parent then
+			local p = c.root.CFrame:PointToObjectSpace(att.WorldPosition)
+			x, z = p.X, p.Z
+		end
+		s.at = V(x, c.groundY + 0.06, z)
+	end
+	local function onEv(name: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, name, fn))
+	end
+	local function launch(r: Rack, dur: number)
+		r.pT = os.clock()
+		r.pDur = dur
+	end
+	onEv("scan", function(side)
+		local now = os.clock()
+		for _, r in racks do
+			-- root-local x of the rack = RR * cos(angle); the character's left is -X
+			local left = math.cos(r.ang) < 0
+			if left == (side == "L") then
+				r.flash = now + 0.4
+			end
+		end
+		if headFx then
+			headFx:Emit(10)
+		end
+	end)
+	local typeIdx = 0
+	onEv("type", function()
+		typeIdx = typeIdx % NR + 1
+		local r = racks[typeIdx]
+		for _, led in r.leds do
+			led.Color = ledCols[rng:NextInteger(1, 3)]
+		end
+		r.flash = os.clock() + 0.08
+		launch(r, 0.7)
+		hubE:Emit(2)
+	end)
+	onEv("exec", function()
+		for _, r in racks do
+			launch(r, 0.45)
+			r.flash = os.clock() + 0.5
+		end
+		shock(1.3, feet.R)
+		hubE:Emit(16)
+		floorFx:Emit(30)
+	end)
+	onEv("vent", function()
+		steam:Emit(22)
+		ventSparks:Emit(14)
+	end)
+	onEv("step", function(side)
+		shock(0.35, feet[side :: string])
+	end)
+	onEv("land", function(air)
+		shock(math.clamp(0.8 + (tonumber(air) or 0) * 0.6, 0.8, 1.6), nil)
+		hubE:Emit(10)
+		floorFx:Emit(20)
+	end)
+	onEv("reboot", function()
+		for _, r in racks do
+			r.flash = os.clock() + 0.6
+			for _, led in r.leds do
+				led.Color = green
+			end
+		end
+		hubE:Emit(20)
+	end)
+	-- VFX -> body: the system overloads now and then while the operator stands still
+	local nextOverload = os.clock() + 15 + rng:NextNumber() * 7
 	local nextLed = 0
 	local ledOff = { -0.75, -0.25, 0.25, 0.75 }
-	local lastS: { number } = table.create(NR, 0)
+	local lastWave = Sync.phase(bus, IDLE) * 3
 	Core.on(c, function(t, _, root)
+		local now = os.clock()
+		local still = Sync.get(bus, "move") < 0.1 and Sync.get(bus, "air") < 0.1
+		if now >= nextOverload then
+			if still then
+				Sync.emit(bus, "overload")
+				nextOverload = now + 15 + rng:NextNumber() * 7
+			else
+				nextOverload = now + 2
+			end
+		end
+		local sO, sD, sR = Sync.since(bus, "overload"), Sync.since(bus, "down"), Sync.since(bus, "reboot")
+		local over = sO < sR and sO < 2.5
+		local down = sD < sR and sD < 2.5
 		local blink = t >= nextLed
 		if blink then
-			nextLed = t + 0.1
+			nextLed = t + (if over then 0.05 else 0.1)
 		end
+		local execE = Sync.env(bus, "exec", 3)
+		local dip = Sync.env(bus, "step", 9) * 0.16 + Sync.env(bus, "land", 5) * 0.55
+		local rebootE = Sync.env(bus, "reboot", 4)
+		-- staggered cable waves on the shared idle beat (3 per loop)
+		local wave = Sync.phase(bus, IDLE) * 3
+		for i, r in racks do
+			local off = (i - 1) / NR
+			local w0, w1 = (lastWave - off) % 1, (wave - off) % 1
+			if w1 < w0 and now - r.pT > r.pDur then
+				launch(r, PULSE_DUR)
+			end
+		end
+		lastWave = wave
 		local hubWorld = c.torso.CFrame * CF(0, 0.1, c.torso.Size.Z / 2 + 0.16)
 		Core.put(hub, hubWorld)
 		Core.put(hubStrip, hubWorld)
+		hubStrip.Color = if down then BLACK elseif over then red else c.c1
 		local hubL = root:ToObjectSpace(hubWorld)
 		hubAtt.CFrame = CFrame.fromMatrix(hubL.Position, Vector3.yAxis, Vector3.xAxis)
 		for i, r in racks do
 			local a = (i - 1) / NR * TAU + t * 0.3
-			local cfL = outward(a, RR, c.chestY + 0.2 + math.sin(t * 0.9 + i) * 0.25)
+			r.ang = a
+			local rr = RR + execE * 1.1
+			local cfL = outward(a, rr, c.chestY + 0.2 + math.sin(t * 0.9 + i) * 0.25 - dip)
+			if over and not down then
+				cfL *= CF(jitter(rng, 0.08)) -- the racks rattle
+			end
 			local cf = root * cfL
 			Core.put(r.body, cf)
 			Core.put(r.bars[1], cf * CF(0, RH / 2, 0))
 			Core.put(r.bars[2], cf * CF(0, -RH / 2, 0))
+			local flashing = now < r.flash
 			for k, led in r.leds do
 				Core.put(led, cf * CF(-0.08, ledOff[k], -RD / 2 - 0.01))
-				if blink and rng:NextNumber() < 0.3 then
+				if down then
+					led.Color = BLACK
+				elseif flashing then
+					led.Color = hot
+				elseif over then
+					if blink then
+						led.Color = if rng:NextNumber() < 0.6 then red else BLACK
+					end
+				elseif blink and rng:NextNumber() < 0.3 then
 					led.Color = ledCols[rng:NextInteger(1, #ledCols)]
 				end
 			end
 			Core.put(r.status, cf * CF(RW / 2 - 0.18, RH / 2 - 0.3, -RD / 2 - 0.02))
-			r.status.Transparency = if math.sin(t * 6 + i) > 0 then 0 else 0.8
+			r.status.Color = if over then red else c.c1
+			r.status.Transparency = if down then 1 elseif flashing then 0 else (if math.sin(t * 6 + i) > 0 then 0 else 0.8)
+			for _, bar in r.bars do
+				bar.Color = if down then BLACK elseif over then red else c.c1:Lerp(WHITE, rebootE)
+			end
 			local backL = (cfL * CF(0, -0.5, RD / 2 + 0.01)).Position
 			local m = CFrame.fromMatrix(backL, -Vector3.yAxis, Vector3.xAxis)
 			r.a0.CFrame = m
 			r.a0n.CFrame = m
 			local topL = (cfL * CF(0, RH / 2 + 0.05, 0)).Position
 			r.up0.Position = topL
-			r.up1.Position = topL + V(0, 5 + math.sin(t * 2 + i) * 1.2, 0)
+			r.up1.Position = topL + V(0, 5 + math.sin(t * 2 + i) * 1.2 + execE * 10, 0)
+			r.uplink.Enabled = not down
 			-- data pulse riding the cable towards the hub
-			local s = (t * 0.6 + i / NR) % 1
-			if s < lastS[i] and rng:NextNumber() < 0.5 then
-				hubE:Emit(4)
+			local s = (now - r.pT) / r.pDur
+			if s >= 1 and s < 1.5 then
+				r.pT = -math.huge
+				if r.pDur < 0.6 or rng:NextNumber() < 0.5 then
+					hubE:Emit(4)
+				end
 			end
-			lastS[i] = s
-			local p = B.bez(backL, backL - V(0, 1.6, 0), hubL.Position - V(0, 1.6, 0), hubL.Position, s)
-			Core.put(r.pulse, root * CF(p))
-			r.pulse.Transparency = 1 - math.sin(s * math.pi)
+			if down or s < 0 or s >= 1 then
+				r.pulse.Transparency = 1
+			else
+				local p = B.bez(backL, backL - V(0, 1.6, 0), hubL.Position - V(0, 1.6, 0), hubL.Position, s)
+				Core.put(r.pulse, root * CF(p))
+				r.pulse.Transparency = 1 - math.sin(s * math.pi)
+				local sz = if r.pDur < 0.6 then 0.5 else 0.3
+				r.pulse.Size = V(sz, sz, sz)
+			end
 		end
-		title.Text = if (t % 1) < 0.5 then "MAINFRAME://ONLINE_" else "MAINFRAME://ONLINE"
+		-- scan laser out of the eyes while a scan is fresh
+		local sw = Sync.window(bus, "scan", 0.3)
+		if headTip and sw >= 0 then
+			Core.put(laser, headTip.WorldCFrame * CF(0, -0.05, -2.9))
+			laser.Transparency = 0.1 + sw * 0.9
+		else
+			laser.Transparency = 1
+		end
+		if sig.disc then
+			sig.disc.Transparency = 0.9 - execE * 0.6
+		end
+		if down then
+			light.Brightness = 0.2
+		else
+			light.Brightness += execE * 4 + rebootE * 3
+		end
+		if down then
+			title.Text = if (t % 0.5) < 0.25 then "MAINFRAME://......" else "MAINFRAME://"
+		elseif over then
+			title.Text = if (t % 0.2) < 0.1 then "MAINFRAME://OVERLOAD" else "MAINFRAME://0VERL0AD"
+		elseif sR < 1.2 then
+			title.Text = "MAINFRAME://REBOOT OK"
+		elseif Sync.since(bus, "exec") < 0.8 then
+			title.Text = "MAINFRAME://EXECUTE"
+		else
+			title.Text = if (t % 1) < 0.5 then "MAINFRAME://ONLINE_" else "MAINFRAME://ONLINE"
+		end
 	end)
 end
 
 -- electron orbit rings and superposition ghosts phasing
--- parts ~60, emitters 5
+-- parts ~60, emitters 7
+-- Synced to the Blender animation (tools/blender/anim/auras/Quantum.py, levitating set, lift 0.8
+-- studs, idle 6.0 s). The ghosts swap sides on Sync.phase(bus, 6.0) (at 0 and 3 s of the loop).
+--   "flick" "R"|"L"   a hand flings out          -> an electron quantum-jumps (flash at the old AND
+--                                                  the new spot), sparks spray from that hand
+--   "tunnel" "L"|"R"  CONST: the body is elsewhere -> a flash where the chest is now, the ghost on
+--                                                  that side blazes
+--   "collapse"        back home                   -> both ghosts snap visible then fade, the probability
+--                                                  wave flares, a spark burst from the chest
+--   "observe" "R"|"L" the head darts at a ghost   -> that ghost flashes solid and COLLAPSES (gone for
+--                                                  ~0.6 s, then fades back in), a flash where it stood
+--   "split"           arms snap into a wide T     -> SUPERPOSITION: both ghosts at full strength, all
+--                                                  three electrons jump, the orbit rings swell 30 %,
+--                                                  white flash, light surge
+--   walk "tunnel" "w" / jump "blink"              -> a small flash at the chest (+ an electron jump)
+-- Without any synced jump for 2.5 s (walking, airborne) an electron still jumps on a timer.
 A.Quantum = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
+	local IDLE = 6.0
 	local OR = 4.6
 	local cy = c.chestY + 0.3
+	local curOR = OR
 	local function orbit(k: number): (t: number) -> CFrame
 		return function(t: number): CFrame
 			return CF(0, cy, 0) * ANG(0, t * 0.25 + k * TAU / 3, 0) * ANG(1.15, 0, 0)
 		end
 	end
+	local function swell(): number
+		return 1 + Sync.env(bus, "split", 2.5) * 0.3
+	end
 	type El = { core: BasePart, shell: BasePart, k: number, skip: number }
 	local els: { El } = {}
 	for k = 1, 3 do
 		local col = if k == 2 then c.c2 else c.c1
-		B.circle(c, { radius = OR, color = col, width = 0.13, tr = 0.1, anchor = orbit(k), n = 10 })
-		B.circle(
-			c,
-			{ radius = OR + 0.3, color = c.c1:Lerp(c.c2, 0.5), width = 0.04, tr = 0.55, anchor = orbit(k), n = 10 }
-		)
+		B.circle(c, {
+			radius = OR,
+			color = col,
+			width = 0.13,
+			tr = 0.1,
+			anchor = orbit(k),
+			n = 10,
+			radiusFn = function()
+				return OR * swell()
+			end,
+		})
+		B.circle(c, {
+			radius = OR + 0.3,
+			color = c.c1:Lerp(c.c2, 0.5),
+			width = 0.04,
+			tr = 0.55,
+			anchor = orbit(k),
+			n = 10,
+			radiusFn = function()
+				return (OR + 0.3) * swell()
+			end,
+		})
 		local core = Core.part(c, V(0.55, 0.55, 0.55), WHITE, NEON, 0, BALL)
 		Core.trail(core, c.c1, 0.5, 0.55, c.c2)
 		els[k] = { core = core, shell = Core.part(c, V(1.15, 1.15, 1.15), c.c1, FF, 0, BALL), k = k, skip = 0 }
@@ -335,7 +630,7 @@ A.Quantum = function(c: Ctx)
 		speed = nr(0.2, 0.5),
 		spread = V2(180, 180),
 	})
-	Core.emit(torso, {
+	local torsoSparks = Core.emit(torso, {
 		tex = T.spark,
 		color = cs(WHITE, c.c1),
 		size = ns(0, 0.4, 0),
@@ -374,50 +669,168 @@ A.Quantum = function(c: Ctx)
 		speed = nr(1.2, 2.5),
 		rot = nr(0, 0),
 	})
-	B.rootLight(c, c.c1, 2.2, 16, { pulse = 2, amp = 1.4 })
-	local nextJump = 0
+	local light = B.rootLight(c, c.c1, 2.2, 16, { pulse = 2, amp = 1.4 })
+	-- hand sparks for the flicks
+	local handSpark: Core.EmitSpec = {
+		tex = T.spark,
+		color = cs(WHITE, c.c1, c.c2),
+		size = ns(0.4, 0),
+		rate = 0,
+		life = nr(0.25, 0.5),
+		speed = nr(6, 11),
+		spread = V2(30, 30),
+		drag = 3,
+		dir = Enum.NormalId.Bottom,
+		bright = 3,
+	}
+	local hands: { [string]: ParticleEmitter } = {}
+	local handNames: { [string]: string } = { R = "rhand", L = "lhand" }
+	for key, name in handNames do
+		local tip = Core.tip(c, name)
+		if tip then
+			hands[key] = Core.emit(tip, handSpark)
+		end
+	end
+	local chestTip = Core.tip(c, "chest")
+
+	local function flashAt(pRoot: Vector3, n: number)
+		jumpAtt.Position = pRoot
+		flashA:Emit(1)
+		flashB:Emit(n)
+	end
+	local function elPos(e: El, t: number): Vector3
+		local th = t * 3.2 + e.k * 2 + e.skip
+		return (orbit(e.k)(t) * CF(math.cos(th) * curOR, 0, math.sin(th) * curOR)).Position
+	end
+	local lastJump = 0
+	local function jump(e: El)
+		local t = os.clock()
+		lastJump = t
+		flashAt(elPos(e, t), 6)
+		e.skip += math.pi * (0.6 + rng:NextNumber() * 0.8)
+		flashAt(elPos(e, t), 6)
+	end
+	local function chestFlash(n: number)
+		if chestTip and chestTip.Parent then
+			flashAt(c.root.CFrame:PointToObjectSpace(chestTip.WorldPosition), n)
+		end
+	end
+	-- ghost state: a = the ForceField ghost (+X side when side = 1), b = the neon ghost
+	local boost = { a = -math.huge, b = -math.huge }
+	local gone = { a = -math.huge, b = -math.huge }
+	local function ghostOn(s: string): string
+		-- which ghost stands on the character's right ("R") / left ("L") right now
+		return if (s == "R") == (side == 1) then "a" else "b"
+	end
+	local function onEv(name: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, name, fn))
+	end
+	onEv("flick", function(arg)
+		local h = hands[arg :: string]
+		if h then
+			h:Emit(16)
+		end
+		jump(els[rng:NextInteger(1, 3)])
+	end)
+	onEv("tunnel", function(arg)
+		if arg == "w" then
+			chestFlash(4)
+			return
+		end
+		boost[ghostOn(arg :: string)] = os.clock()
+		chestFlash(8)
+	end)
+	onEv("collapse", function()
+		boost.a, boost.b = os.clock(), os.clock()
+		torsoSparks:Emit(20)
+	end)
+	onEv("observe", function(arg)
+		local g = ghostOn(arg :: string)
+		gone[g] = os.clock()
+		flashAt(V((if arg == "R" then 2.6 else -2.6), c.chestY, 0.4), 10)
+	end)
+	onEv("split", function()
+		boost.a, boost.b = os.clock(), os.clock()
+		for _, e in els do
+			jump(e)
+		end
+		chestFlash(16)
+		torsoSparks:Emit(24)
+	end)
+	onEv("blink", function()
+		chestFlash(8)
+		jump(els[rng:NextInteger(1, 3)])
+	end)
+	-- ghost transparency: base breathing, boosted by tunnels / split, or collapsed by observation
+	local function ghostTr(g: string, base: number, now: number): number
+		local sg = now - gone[g]
+		if sg < 0.12 then
+			return 0.05 -- the measured state flashes solid...
+		elseif sg < 0.7 then
+			return 1 -- ...and collapses
+		elseif sg < 1.2 then
+			return 1 - (1 - base) * (sg - 0.7) / 0.5
+		end
+		local b = math.exp(-(now - boost[g]) * 3)
+		return base + (0.08 - base) * b
+	end
 	Core.on(c, function(t, _, root)
-		side = if (t % 7.4) < 3.7 then 1 else -1
-		if t >= nextJump then
-			nextJump = t + 0.9 + rng:NextNumber() * 1.2
-			local e = els[rng:NextInteger(1, 3)]
-			local th = t * 3.2 + e.k * 2 + e.skip
-			jumpAtt.Position = (orbit(e.k)(t) * CF(math.cos(th) * OR, 0, math.sin(th) * OR)).Position
-			flashA:Emit(1)
-			flashB:Emit(6)
-			e.skip += math.pi * (0.6 + rng:NextNumber() * 0.8)
-			th = t * 3.2 + e.k * 2 + e.skip
-			jumpAtt.Position = (orbit(e.k)(t) * CF(math.cos(th) * OR, 0, math.sin(th) * OR)).Position
-			flashA:Emit(1)
-			flashB:Emit(6)
+		local now = os.clock()
+		side = if Sync.phase(bus, IDLE) < 0.5 then 1 else -1
+		curOR = OR * swell()
+		-- fallback quantum jumps when no clip drives them (walking, airborne)
+		if now - lastJump > 2.5 + rng:NextNumber() * 0.5 then
+			jump(els[rng:NextInteger(1, 3)])
 		end
 		for _, e in els do
-			local th = t * 3.2 + e.k * 2 + e.skip
-			local cf = root * orbit(e.k)(t) * CF(math.cos(th) * OR, 0, math.sin(th) * OR)
+			local cf = root * CF(elPos(e, t))
 			Core.put(e.core, cf)
 			local s = 1.05 + Core.pulse(t, 0.6, e.k / 3) * 0.3
 			e.shell.Size = V(s, s, s)
 			Core.put(e.shell, cf)
 		end
 		local w = 0.5 + 0.5 * math.sin(t * 2)
+		local trA = ghostTr("a", w * 0.9, now)
+		local trB = ghostTr("b", 0.7 + (1 - w) * 0.3, now)
 		for _, p in ga do
-			p.Transparency = w * 0.9
+			p.Transparency = trA
 		end
 		for _, p in gb do
-			p.Transparency = 0.7 + (1 - w) * 0.3
+			p.Transparency = trB
 		end
+		local wf = Sync.env(bus, "collapse", 4) + Sync.env(bus, "split", 3)
 		for k, p in wave do
-			p.Transparency = 0.5 + 0.5 * math.sin(t * 4 + k * 0.9)
+			p.Transparency = math.max(0, 0.5 + 0.5 * math.sin(t * 4 + k * 0.9) - wf)
 		end
 		Core.put(nucleus, root * CF(0, yA + math.sin(t * 1.4) * 0.12, 0))
+		light.Brightness += Sync.env(bus, "split", 3) * 4 + Sync.env(bus, "tunnel", 8) * 1.5
 	end)
 end
 
 -- orange heat haze, lightning arcs, fan-blade halo spinning fast
--- parts ~63, emitters 6
+-- parts ~63, emitters 13
+-- Synced to the Blender animation (tools/blender/anim/auras/Overclocked.py, grounded set, idle 4.0 s
+-- = one thermal cycle). The heat model (TEMP readout, fan speed, light) is driven by the body:
+--   "rev"           crouch, fists to the chest  -> the back fan spins up, heat climbs
+--   "stomp" "L"     the left foot slams down    -> fire shock ring + floor fire from that foot
+--   "surge"         arms thrown up in a V       -> arcs leap from both fists, blades flash white-hot,
+--                                                  light surge, spark bursts, TEMP jumps
+--   "crackle"       CONST shake frames          -> fresh arc bursts from the fists
+--   "throttle"      hand slaps the forehead     -> THROTTLING!, the fan stalls, the light browns out
+--   "vent"          the hand fans the face      -> both back vents blast fire + smoke
+--   "reboot"        2-frame stiff boot pose     -> fan / blades black out, TEMP "REBOOT", then restart
+--   walk "step"     each footfall               -> sparks + a fire puff from that foot, heat rises
+--   "zap"           (VFX -> body, every 6-10 s) -> a white arc strikes the chest from the fan; the
+--                                                  body's "zap" clip electrocutes it, its "jolt"
+--                                                  marker sprays sparks from both hands
+--   "quake"         ("slam" clip on "land")     -> big fire shock ring + floor fire burst
+-- The sigil breathes on Sync.phase(bus, 4.0) (the idle loop) and flashes on surge / quake.
 A.Overclocked = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
+	local IDLE = 4.0
 	local FR = 2.7
+	local g = c.groundY
 	local fanL = CF(0, c.chestY + 0.7, 1.3) -- big cooling fan on the back
 	local function fanPlane(): CFrame
 		return fanL * ANG(math.pi / 2, 0, 0)
@@ -434,8 +847,10 @@ A.Overclocked = function(c: Ctx)
 	B.circle(c, { radius = FR + 0.25, color = c.c2, width = 0.08, tr = 0.3, anchor = fanPlane, n = 8 })
 	B.circle(c, { radius = FR * 0.35, color = c.c2, width = 0.06, tr = 0.2, anchor = fanPlane, n = 6 })
 	local blades: { BasePart } = {}
+	local bladeCol: { Color3 } = {}
 	for i = 1, 9 do
-		blades[i] = Core.part(c, V(0.7, FR * 0.82, 0.06), c.c1:Lerp(c.c2, (i % 3) / 4), NEON, 0.1)
+		bladeCol[i] = c.c1:Lerp(c.c2, (i % 3) / 4)
+		blades[i] = Core.part(c, V(0.7, FR * 0.82, 0.06), bladeCol[i], NEON, 0.1)
 	end
 	local hubP = Core.part(c, V(0.3, 0.8, 0.8), c.c2, NEON, 0, CYL)
 	local blur = Core.part(c, V(0.03, FR * 2, FR * 2), c.c1, NEON, 0.88, CYL)
@@ -482,7 +897,7 @@ A.Overclocked = function(c: Ctx)
 			return V(0, c.chestY + 0.5, 0.8), (fanL * CF(math.cos(a) * FR, math.sin(a) * FR, 0)).Position
 		end,
 	})
-	B.sigil(c, {
+	local sig = B.sigil(c, {
 		radius = 5.4,
 		color = c.c1,
 		color2 = c.c2,
@@ -490,10 +905,9 @@ A.Overclocked = function(c: Ctx)
 		tickSize = V(0.35, 0.07, 0.22),
 		spin = 1.4,
 		glow = 0.88,
-		pulse = 3.4,
 	})
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	local smoke = Core.emit(torso, {
 		tex = T.smoke,
 		color = cs(c.c1, c.c2),
 		size = ns(2, 5),
@@ -518,9 +932,9 @@ A.Overclocked = function(c: Ctx)
 		spread = V2(12, 12),
 		dir = Enum.NormalId.Back,
 	}
-	Core.emit(Core.att(c, c.torso, CF(sx, sy, 0.4)), vent)
-	Core.emit(Core.att(c, c.torso, CF(-sx, sy, 0.4)), vent)
-	Core.emit(torso, {
+	local ventR = Core.emit(Core.att(c, c.torso, CF(sx, sy, 0.4)), vent)
+	local ventL = Core.emit(Core.att(c, c.torso, CF(-sx, sy, 0.4)), vent)
+	local torsoSparks = Core.emit(torso, {
 		tex = T.fireSpark,
 		color = cs(c.c2, c.c1),
 		size = ns(0.3, 0),
@@ -531,7 +945,7 @@ A.Overclocked = function(c: Ctx)
 		accel = V(0, 4, 0),
 		bright = 2.5,
 	})
-	B.floorEmit(c, 4.5, {
+	local floorFire = B.floorEmit(c, 4.5, {
 		tex = T.fire,
 		color = cs(c.c2, c.c1, Color3.fromRGB(120, 30, 0)),
 		size = ns(0.7, 0),
@@ -555,30 +969,263 @@ A.Overclocked = function(c: Ctx)
 	local _, temp =
 		B.glyph(c, "TEMP 97C", c.c2, V2(2.8, 0.5), F.pixel, CF(0, c.topY + 1.6, 0), Color3.fromRGB(80, 20, 0))
 	local light = B.rootLight(c, c.c1, 2.6, 17)
-	Core.on(c, function(t, _, root)
+
+	-- ---------------------------------------------------------- body sync
+	local hands: { [string]: Attachment? } = { R = Core.tip(c, "rhand"), L = Core.tip(c, "lhand") }
+	local feet: { [string]: Attachment? } = { R = Core.tip(c, "rfoot"), L = Core.tip(c, "lfoot") }
+	local sparkSpec: Core.EmitSpec = {
+		tex = T.fireSpark,
+		color = cs(WHITE, c.c2, c.c1),
+		size = ns(0.35, 0),
+		rate = 0,
+		life = nr(0.3, 0.7),
+		speed = nr(5, 11),
+		spread = V2(180, 180),
+		accel = V(0, -10, 0),
+		bright = 3,
+	}
+	local puffSpec: Core.EmitSpec = {
+		tex = T.fire,
+		color = cs(c.c2, c.c1, Color3.fromRGB(120, 30, 0)),
+		size = ns(0.9, 0.2),
+		transp = ns(0.3, 1),
+		rate = 0,
+		life = nr(0.25, 0.5),
+		speed = nr(2, 4),
+		spread = V2(70, 70),
+		dir = Enum.NormalId.Top,
+		accel = V(0, 5, 0),
+	}
+	local handFx: { [string]: ParticleEmitter } = {}
+	local footFx: { [string]: ParticleEmitter } = {}
+	local footPuff: { [string]: ParticleEmitter } = {}
+	for side, a in hands do
+		if a then
+			handFx[side] = Core.emit(a, sparkSpec)
+		end
+	end
+	for side, a in feet do
+		if a then
+			footFx[side] = Core.emit(a, sparkSpec)
+			footPuff[side] = Core.emit(a, puffSpec)
+		end
+	end
+	local function local3(a: Attachment?, fallback: Vector3): Vector3
+		if not a then
+			return fallback
+		end
+		return c.root.CFrame:PointToObjectSpace(a.WorldPosition)
+	end
+	-- arcs leaping out of the fists while the surge / crackle / jolt lasts
+	local function arcsOn(): boolean
+		return Sync.since(bus, "surge") < 0.55 or Sync.since(bus, "crackle") < 0.16 or Sync.since(bus, "jolt") < 0.3
+	end
+	for k = 1, 4 do
+		local side = if k % 2 == 1 then "R" else "L"
+		local sx0 = if side == "R" then 1.5 else -1.5
+		B.bolt(c, {
+			segs = 6,
+			color = WHITE,
+			color2 = c.c2,
+			width = 0.14,
+			jitter = 0.55,
+			interval = 0.045,
+			flicker = 0.15,
+			active = arcsOn,
+			ends = function()
+				local h = local3(hands[side], V(sx0, c.chestY - 1, 0))
+				local out = V(math.sign(h.X + 1e-3) * (1.5 + rng:NextNumber() * 2), 1.2 + rng:NextNumber() * 2.5, (rng:NextNumber() - 0.5) * 3)
+				return h, h + out
+			end,
+		})
+	end
+	-- the zap: a white arc from the fan rim into the chest (VFX -> body reaction)
+	B.bolt(c, {
+		segs = 8,
+		color = WHITE,
+		color2 = c.c2,
+		width = 0.22,
+		jitter = 0.5,
+		interval = 0.035,
+		active = function()
+			return Sync.since(bus, "zap") < 0.28
+		end,
+		ends = function()
+			local a = rng:NextNumber() * TAU
+			return (fanL * CF(math.cos(a) * FR, math.sin(a) * FR, 0)).Position, V(0, c.chestY + 0.2, -0.3)
+		end,
+	})
+	-- fire shock ring on the floor (stomp / landing quake), one reusable beam circle
+	local shockT, shockMax, shockDur = -math.huge, 5, 0.5
+	local shockPos = V(0, g + 0.06, 0)
+	local shock = B.circle(c, {
+		radius = 0.6,
+		color = c.c2,
+		color2 = c.c1,
+		width = 0.4,
+		n = 10,
+		bright = 3,
+		anchor = function()
+			return CF(shockPos)
+		end,
+		radiusFn = function(t)
+			return 0.6 + smooth01((t - shockT) / shockDur) * shockMax
+		end,
+	})
+	B.setBeamsTransparency(shock.beams, 1)
+	local function quake(at: Vector3, size: number, n: number)
+		shockPos = V(at.X, g + 0.06, at.Z)
+		shockT, shockMax, shockDur = os.clock(), size, 0.35 + size * 0.04
+		floorFire:Emit(n)
+	end
+	-- heat model: the body heats the rig, the readout shows it
+	local heat = 92
+	local function onEv(name: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, name, fn))
+	end
+	onEv("rev", function()
+		heat += 4
+		smoke:Emit(4)
+	end)
+	onEv("stomp", function(side)
+		heat += 2
+		local s = if side == "R" then "R" else "L"
+		quake(local3(feet[s], V(if s == "R" then 0.5 else -0.5, g, 0)), 4.5, 26)
+		if footFx[s] then
+			footFx[s]:Emit(24)
+		end
+	end)
+	onEv("surge", function()
+		heat += 14
+		torsoSparks:Emit(50)
+		for _, e in handFx do
+			e:Emit(30)
+		end
+		ventR:Emit(20)
+		ventL:Emit(20)
+	end)
+	onEv("crackle", function()
+		heat += 2
+		for _, e in handFx do
+			e:Emit(12)
+		end
+	end)
+	onEv("vent", function()
+		heat -= 4
+		ventR:Emit(28)
+		ventL:Emit(28)
+		smoke:Emit(6)
+	end)
+	onEv("reboot", function()
+		heat = 84
+		torsoSparks:Emit(20)
+	end)
+	onEv("step", function(side)
+		heat += 0.35
+		local s = if side == "R" then "R" else "L"
+		if footFx[s] then
+			footFx[s]:Emit(8)
+		end
+		if footPuff[s] then
+			footPuff[s]:Emit(4)
+		end
+	end)
+	onEv("zap", function()
+		heat += 6
+		torsoSparks:Emit(24)
+	end)
+	onEv("jolt", function()
+		for _, e in handFx do
+			e:Emit(20)
+		end
+	end)
+	onEv("quake", function()
+		quake(V(0, g, 0), 7, 45)
+		for _, e in footFx do
+			e:Emit(16)
+		end
+	end)
+	local nextZap = os.clock() + 4 + rng:NextNumber() * 4
+	local fanAng, fanSpd = 0, 24
+	Core.on(c, function(t, dt, root)
+		if t >= nextZap then
+			nextZap = t + 6 + rng:NextNumber() * 4
+			Sync.emit(bus, "zap")
+		end
+		local throttling = Sync.window(bus, "throttle", 1.1) >= 0
+		local rebooting = Sync.since(bus, "reboot") < 0.12
+		local surge = Sync.env(bus, "surge", 4)
+		-- fan: spins up on rev / surge, stalls while throttling, restarts after the reboot
+		local target = 24 + 30 * Sync.env(bus, "rev", 1.4) + 40 * Sync.env(bus, "surge", 2)
+		if throttling then
+			target = 3
+		end
+		fanSpd += (target - fanSpd) * (1 - math.exp(-dt * 6))
+		fanAng += fanSpd * dt
 		local fan = root * fanL
-		local rot = t * 24
+		local hot = math.max(surge, Sync.env(bus, "zap", 6))
 		for i, b in blades do
-			Core.put(b, fan * ANG(0, 0, rot + (i - 1) / 9 * TAU) * CF(0, FR * 0.5, 0) * ANG(0, 0.5, 0))
+			Core.put(b, fan * ANG(0, 0, fanAng + (i - 1) / 9 * TAU) * CF(0, FR * 0.5, 0) * ANG(0, 0.5, 0))
+			b.Color = bladeCol[i]:Lerp(WHITE, hot)
+			b.Transparency = if rebooting then 1 else 0.1
 		end
 		Core.put(hubP, fan * AXIS_Z)
 		Core.put(blur, fan * AXIS_Z * CF(0.03, 0, 0))
-		local deg = 95 + math.noise(t * 0.8, 4) * 26
-		if deg > 103 then
+		blur.Transparency = if rebooting then 1 else 0.93 - math.clamp(fanSpd / 60, 0, 1) * 0.1
+		-- heat drifts to its working temperature (hotter while running), body events kick it
+		heat += (90 + 12 * Sync.get(bus, "move") - heat) * (1 - math.exp(-dt * 0.35))
+		local deg = heat + math.noise(t * 0.8, 4) * 3
+		if rebooting or Sync.since(bus, "reboot") < 0.4 then
+			temp.Text = "REBOOT..."
+			temp.TextColor3 = WHITE
+		elseif throttling or deg > 110 then
 			temp.Text = if math.sin(t * 20) > 0 then "THROTTLING!" else string.format("TEMP %dC", math.floor(deg))
 			temp.TextColor3 = Color3.fromRGB(255, 40, 30)
 		else
 			temp.Text = string.format("TEMP %dC", math.floor(deg))
-			temp.TextColor3 = c.c2
+			temp.TextColor3 = c.c2:Lerp(Color3.fromRGB(255, 60, 30), math.clamp((deg - 92) / 18, 0, 1))
 		end
-		light.Brightness = 2 + rng:NextNumber() * 2.2
+		-- light: flicker, browns out while throttling, surges on the big moments
+		local b = 2 + rng:NextNumber() * 2.2
+		if throttling then
+			b *= 0.35
+		end
+		light.Brightness = b + surge * 6 + Sync.env(bus, "zap", 7) * 4 + Sync.env(bus, "quake", 5) * 4
+		-- sigil breathes with the idle loop, flashes on surge / quake / stomp
+		local br = 0.5 - 0.5 * math.cos(Sync.phase(bus, IDLE) * TAU)
+		local flash = math.max(surge, Sync.env(bus, "quake", 4), Sync.env(bus, "stomp", 6) * 0.6)
+		for k, cir in sig.circles do
+			B.setBeamsTransparency(cir.beams, math.clamp((if k == 1 then 0.05 else 0.3) + br * 0.35 - flash * 0.35, 0, 1))
+		end
+		-- shock ring fade
+		local sp = (t - shockT) / shockDur
+		B.setBeamsTransparency(shock.beams, if sp >= 1 then 1 else 0.05 + sp * sp * 0.95)
 	end)
 end
 
 -- glowing neuron web around the head with synapse sparks
--- parts ~51, emitters 4
+-- parts ~54, emitters 9
+-- Synced to the Blender animation (tools/blender/anim/auras/NeuralLink.py, grounded set, idle 5.0 s
+-- = one thought: fingers on the temple, the signal arrives, a thought forms, it is transmitted):
+--   "receive"        head snaps up             -> synapse storm: every node flashes, spark burst from
+--                                                 the head, the spine beams surge, the web kicks out
+--   "twitch"         CONST aftershocks         -> a few random nodes flash, small spark puffs
+--   "thought" lhand  palm flick                -> a thought orb forms over the left palm, two
+--                                                 dendrites snap onto it and hold until "transmit"
+--   "transmit"       arms fling open           -> the orb shoots out ahead, a cyan shock ring rolls
+--                                                 out from the chest, the web expands, dendrites
+--                                                 stretch, light surge
+--   "link" rhand     fingers back on temple    -> a link beam flashes from the fingertips into the
+--                                                 web, the head ring flares, the web settles
+--   walk "step"      each footfall             -> the lowest nodes flash, cyan sparks from that foot
+--   "overload"       (VFX -> body, 7-12 s)     -> the web charges toward cyan (synapses rush in);
+--                                                 the body's "overload" clip bows and snaps the head,
+--                                                 its "spike" marker -> every node flashes + big burst
+-- The web radius, root light and sigil breathe on Sync.phase(bus, 5.0) (the idle loop).
 A.NeuralLink = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
+	local IDLE = 5.0
 	local N = 16
 	local dirs: { Vector3 } = {}
 	for i = 1, N do
@@ -620,14 +1267,18 @@ A.NeuralLink = function(c: Ctx)
 		Core.beam(c, atts[l[1]], atts[l[2]], c.c1, 0.08, { color2 = c.c2, tr = ns(0.25) })
 	end
 	local spineAtt = Core.att(c, c.torso, CF(0, c.torso.Size.Y * 0.35, c.torso.Size.Z / 2 + 0.05))
+	local spine: { Beam } = {}
 	for _, i in { 1, 2, 3, 4 } do
-		Core.beam(
-			c,
-			atts[i],
-			spineAtt,
-			c.c2,
-			0.12,
-			{ w1 = 0.04, tex = T.square, texLen = 0.4, texSpeed = 3, tr = ns(0.15, 0.5) }
+		table.insert(
+			spine,
+			Core.beam(
+				c,
+				atts[i],
+				spineAtt,
+				c.c2,
+				0.12,
+				{ w1 = 0.04, tex = T.square, texLen = 0.4, texSpeed = 3, tr = ns(0.15, 0.5) }
+			)
 		)
 	end
 	-- dendrites reaching out of the web
@@ -663,7 +1314,7 @@ A.NeuralLink = function(c: Ctx)
 		Core.trail(p, WHITE, 0.18, 0.25, c.c2)
 		syns[i] = { p = p, from = l[1], to = l[2], t0 = os.clock() - i * 0.06 }
 	end
-	B.ring(c, {
+	local headRing = B.ring(c, {
 		n = 18,
 		gap = 3,
 		radius = 1.2,
@@ -674,10 +1325,7 @@ A.NeuralLink = function(c: Ctx)
 			return CF(0, c.headY + 0.1, 0) * ANG(0.12, 0, 0)
 		end,
 	})
-	B.sigil(
-		c,
-		{ radius = 5.2, color = c.c1, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.4, pulse = 3.8 }
-	)
+	local sig = B.sigil(c, { radius = 5.2, color = c.c1, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.4 })
 	local headAtt = Core.att(c, c.head)
 	Core.emit(headAtt, {
 		tex = T.spark,
@@ -715,12 +1363,146 @@ A.NeuralLink = function(c: Ctx)
 		life = nr(1.5, 2.5),
 		speed = nr(1.5, 3),
 	})
-	B.rootLight(c, c.c1, 2.4, 16, { y = c.headY, pulse = 1.1, amp = 1.2 })
+	local light = B.rootLight(c, c.c1, 2.4, 16, { y = c.headY })
+
+	-- ---------------------------------------------------------- body sync
+	local lhand, rhand = Core.tip(c, "lhand"), Core.tip(c, "rhand")
+	local feet: { [string]: Attachment? } = { R = Core.tip(c, "rfoot"), L = Core.tip(c, "lfoot") }
+	local cyanSpec: Core.EmitSpec = {
+		tex = T.spark,
+		color = cs(c.c2, WHITE),
+		size = ns(0.45, 0),
+		rate = 0,
+		life = nr(0.3, 0.6),
+		speed = nr(2, 4),
+		spread = V2(70, 70),
+		dir = Enum.NormalId.Top,
+	}
+	local footFx: { [string]: ParticleEmitter } = {}
+	for side, a in feet do
+		if a then
+			footFx[side] = Core.emit(a, cyanSpec)
+		end
+	end
+	-- the thought orb: pink core in a cyan shell, sparks while it is held
+	local orb = Core.part(c, V(0.55, 0.55, 0.55), c.c1, NEON, 1, BALL)
+	local shell = Core.part(c, V(0.95, 0.95, 0.95), c.c2, FF, 1, BALL)
+	local orbAtt = Core.att(c)
+	local orbFx = Core.emit(orbAtt, {
+		tex = T.spark,
+		color = cs(c.c2, c.c1),
+		size = ns(0.3, 0),
+		rate = 0,
+		life = nr(0.3, 0.6),
+		speed = nr(1, 2.5),
+		spread = V2(180, 180),
+	})
+	-- transmit shock ring rolling out from the chest + spark burst
+	local chestAtt = Core.att(c, c.torso)
+	local chestFx = Core.emit(chestAtt, {
+		tex = T.spark,
+		color = cs(WHITE, c.c2, c.c1),
+		size = ns(0.5, 0),
+		rate = 0,
+		life = nr(0.4, 0.8),
+		speed = nr(10, 16),
+		drag = 4,
+		spread = V2(180, 25),
+	})
+	local wave = B.circle(c, {
+		radius = 1,
+		color = c.c2,
+		color2 = c.c1,
+		width = 0.3,
+		n = 10,
+		bright = 3,
+		anchor = function()
+			return CF(0, c.chestY, 0)
+		end,
+		radiusFn = function()
+			return 1 + smooth01(Sync.since(bus, "transmit") / 0.6) * 8
+		end,
+	})
+	B.setBeamsTransparency(wave.beams, 1)
+	-- the link beam: fingertips -> the nearest node of the web
+	local linkAtt = Core.att(c)
+	local linkBeam: Beam? = nil
+	if rhand then
+		local lb = Core.beam(c, rhand, linkAtt, WHITE, 0.2, { color2 = c.c2, w1 = 0.06, segs = 6 })
+		lb.Enabled = false
+		linkBeam = lb
+	end
+	local function flashAll(t: number)
+		for i = 1, N do
+			flash[i] = t
+		end
+	end
+	local function onEv(name: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, name, fn))
+	end
+	local holding = false
+	local orbFrom = Vector3.zero
+	onEv("receive", function()
+		flashAll(os.clock())
+		synE:Emit(30)
+	end)
+	onEv("twitch", function()
+		local t = os.clock()
+		for _ = 1, 4 do
+			flash[rng:NextInteger(1, N)] = t
+		end
+		synE:Emit(6)
+	end)
+	onEv("thought", function()
+		holding = true
+		orbFx:Emit(14)
+	end)
+	onEv("transmit", function()
+		holding = false
+		chestFx:Emit(45)
+		orbFx:Emit(20)
+		flashAll(os.clock())
+	end)
+	onEv("link", function()
+		synE:Emit(10)
+	end)
+	onEv("spike", function()
+		flashAll(os.clock())
+		synE:Emit(40)
+		chestFx:Emit(16)
+	end)
+	onEv("step", function(side)
+		local s = if side == "R" then "R" else "L"
+		if footFx[s] then
+			footFx[s]:Emit(7)
+		end
+		local t = os.clock()
+		for i = 1, 3 do -- the lowest nodes of the web
+			flash[i] = t
+		end
+	end)
+	local nextOverload = os.clock() + 5 + rng:NextNumber() * 5
 	local pos: { Vector3 } = table.create(N, Vector3.zero)
 	local R = 3
 	Core.on(c, function(t, _, root)
+		if t >= nextOverload then
+			nextOverload = t + 7 + rng:NextNumber() * 5
+			Sync.emit(bus, "overload")
+		end
 		local rot = ANG(0, t * 0.3, 0)
-		local r = R + math.sin(t * 1.2) * 0.15
+		local breath = 0.5 - 0.5 * math.cos(Sync.phase(bus, IDLE) * TAU)
+		local kick = Sync.env(bus, "receive", 5) * 0.55 + Sync.env(bus, "spike", 5) * 0.45
+		local tx = Sync.since(bus, "transmit")
+		local expand = if tx < 0.25 then smooth01(tx / 0.25) else math.exp(-(tx - 0.25) * 2.2)
+		expand *= if tx == math.huge then 0 else 1.1
+		local r = R + (breath - 0.5) * 0.3 + kick + expand - Sync.env(bus, "link", 6) * 0.25
+		local charge = 0
+		local ow = Sync.window(bus, "overload", 0.3)
+		if ow >= 0 then
+			charge = ow
+		elseif Sync.since(bus, "overload") < 0.6 then
+			charge = 1 - (Sync.since(bus, "overload") - 0.3) / 0.3
+		end
 		local hc = V(0, c.headY + 0.5, 0)
 		for i = 1, N do
 			local p = hc + rot:VectorToWorldSpace(dirs[i]) * r
@@ -728,42 +1510,133 @@ A.NeuralLink = function(c: Ctx)
 			atts[i].Position = p
 			Core.put(nodes[i], root * CF(p))
 			local f = math.max(0, 1 - (t - flash[i]) / 0.3)
-			nodes[i].Color = c.c1:Lerp(WHITE, f)
-			local s = 0.42 + f * 0.25
+			nodes[i].Color = c.c1:Lerp(c.c2, charge):Lerp(WHITE, f)
+			local s = 0.42 + f * 0.25 + charge * 0.12
 			nodes[i].Size = V(s, s, s)
 		end
-		for i, d in dens do
-			local a = d.a + t * 0.2 + math.sin(t * 0.7 + i) * 0.2
-			d.tip.Position = V(math.cos(a) * d.r, d.y + math.sin(t * 1.1 + i) * 0.5, math.sin(a) * d.r)
+		-- spine beams surge on receive / spike
+		local surge = math.max(Sync.env(bus, "receive", 3), Sync.env(bus, "spike", 3))
+		for _, b in spine do
+			b.Width0 = 0.12 + surge * 0.3
+			b.TextureSpeed = 3 + surge * 9
 		end
-		for _, s in syns do
-			local f = (t - s.t0) / 0.32
+		-- dendrites: wander, stretch out on transmit, two of them grab the thought orb
+		local hp = if lhand then root:PointToObjectSpace(lhand.WorldPosition) + V(0, 0.75, -0.25) else V(-1, c.chestY, -1.5)
+		local stretch = 1 + expand * 0.35
+		for i, d in dens do
+			if holding and i <= 2 then
+				d.tip.Position = hp
+			else
+				local a = d.a + t * 0.2 + math.sin(t * 0.7 + i) * 0.2
+				d.tip.Position = V(math.cos(a) * d.r * stretch, d.y + math.sin(t * 1.1 + i) * 0.5, math.sin(a) * d.r * stretch)
+			end
+		end
+		-- thought orb: grows on the palm, shoots forward on transmit and fades
+		local th = Sync.since(bus, "thought")
+		if holding and th > 1.2 then -- started walking before "transmit": let the thought go
+			holding = false
+		end
+		if holding then
+			local grow = smooth01(th / 0.3)
+			orbFrom = hp
+			Core.put(orb, root * CF(hp) * ANG(t * 2, t * 3, 0))
+			Core.put(shell, root * CF(hp))
+			orbAtt.Position = hp
+			orb.Size = V(0.55, 0.55, 0.55) * (0.3 + grow * 0.7 + math.sin(t * 9) * 0.05)
+			orb.Transparency = 0.05 + (1 - grow) * 0.9
+			shell.Transparency = 0.35 + (1 - grow) * 0.65
+		elseif tx < 0.45 then
+			local f = tx / 0.45
+			local p = orbFrom:Lerp(V(0, c.chestY + 0.5, -9), smooth01(f))
+			Core.put(orb, root * CF(p))
+			Core.put(shell, root * CF(p))
+			orbAtt.Position = p
+			orb.Transparency = 0.05 + f * 0.95
+			shell.Transparency = 0.35 + f * 0.65
+		else
+			orb.Transparency = 1
+			shell.Transparency = 1
+		end
+		-- transmit wave
+		local wp = tx / 0.6
+		B.setBeamsTransparency(wave.beams, if wp >= 1 then 1 else 0.05 + wp * wp * 0.95)
+		-- link beam: fingertips -> nearest node
+		local lk = Sync.since(bus, "link")
+		local lb = linkBeam
+		if lb and rhand then
+			if lk < 0.45 then
+				local fp = root:PointToObjectSpace(rhand.WorldPosition)
+				local best, bd = 1, math.huge
+				for i = 1, N do
+					local d = (pos[i] - fp).Magnitude
+					if d < bd then
+						best, bd = i, d
+					end
+				end
+				linkAtt.Position = pos[best]
+				flash[best] = t
+				lb.Enabled = true
+				lb.Transparency = NumberSequence.new(lk / 0.45)
+			elseif lb.Enabled then
+				lb.Enabled = false
+			end
+		end
+		-- head ring flares on link / receive
+		local ringF = math.max(Sync.env(bus, "link", 4), Sync.env(bus, "receive", 4))
+		for _, p in headRing do
+			p.Color = c.c2:Lerp(WHITE, ringF)
+		end
+		-- light + sigil breathe with the idle loop, surge on the big moments
+		local big = math.max(Sync.env(bus, "transmit", 3), kick, Sync.env(bus, "link", 5) * 0.5)
+		light.Brightness = 1.8 + breath * 1.2 + big * 4
+		for k, cir in sig.circles do
+			B.setBeamsTransparency(cir.beams, math.clamp((if k == 1 then 0.05 else 0.3) + breath * 0.35 - big * 0.35, 0, 1))
+		end
+		-- synapses race along the links (twice as fast while an overload charges the web)
+		local hop = 0.32 - charge * 0.16
+		for _, sy in syns do
+			local f = (t - sy.t0) / hop
 			if f >= 1 then
-				flash[s.to] = t
+				flash[sy.to] = t
 				local opts = {}
 				for _, l in links do
-					if l[1] == s.to then
+					if l[1] == sy.to then
 						table.insert(opts, l[2])
-					elseif l[2] == s.to then
+					elseif l[2] == sy.to then
 						table.insert(opts, l[1])
 					end
 				end
-				s.from = s.to
-				s.to = if #opts > 0 then opts[rng:NextInteger(1, #opts)] else s.from
-				s.t0 = t
+				sy.from = sy.to
+				sy.to = if #opts > 0 then opts[rng:NextInteger(1, #opts)] else sy.from
+				sy.t0 = t
 				f = 0
 				if rng:NextNumber() < 0.3 then
 					synE:Emit(4)
 				end
 			end
-			Core.put(s.p, root * CF(pos[s.from]:Lerp(pos[s.to], f)))
+			Core.put(sy.p, root * CF(pos[sy.from]:Lerp(pos[sy.to], math.min(f, 1))))
 		end
 	end)
 end
 
 -- hexagon shield plates orbiting, golden eye above
--- parts ~72, emitters 4
+-- parts ~72, emitters 8
+-- Synced to the Blender animation (tools/blender/anim/auras/Sentinel.py, grounded set, idle 6.0 s):
+-- a guardian in a wide guard stance that scans the perimeter, stomps, crosses its arms in a block
+-- and shoves the shield wall outward. The plates ARE the block: they only form the wall while the
+-- arms hold it.
+--   "scan" L/R  head snaps over a shoulder -> the golden eye stops staring at the camera and looks
+--                                            the same way, a searchlight beam sweeps the floor there
+--   "stomp"     right foot slams down      -> golden shock ring from the right foot, floor sparks,
+--                                            the plates jolt up, eye light pops
+--   "raise"     arms cross in a block      -> the plates leave the orbit and lock into a hexagon
+--                                            wall in front of the body (held until "push")
+--   "push"      arms thrust apart          -> the wall is shoved 3 studs out and dissolves back into
+--                                            orbit, sparks burst from both palms, the eye flashes white
+--   walk "step" (runner, each footfall)    -> small ring + sparks under that foot, the plates dip
+--   "slam" (brace reaction on "land")      -> big shock ring, floor sparks, plates slam down, eye flash
 A.Sentinel = function(c: Ctx)
+	local bus = c.bus
 	local gold = c.c1
 	type Plate = { inner: { BasePart }, rim: { BasePart }, emblem: BasePart, att: Attachment }
 	local plates: { Plate } = {}
@@ -795,6 +1668,18 @@ A.Sentinel = function(c: Ctx)
 		local tgt = Core.att(c, nil, CF(math.cos(a) * 3.6, c.groundY + 0.05, math.sin(a) * 3.6))
 		Core.beam(c, eyeAtt, tgt, gold, 0.1, { w1 = 0.9, tr = ns(0.55, 0.95), segs = 2 })
 	end
+	-- searchlight: eye -> a floor point that sweeps the scanned side
+	local scanAtt = Core.att(c, nil, CF(0, c.groundY + 0.05, -4))
+	local search = Core.beam(c, eyeAtt, scanAtt, gold, 0.15, { w1 = 2.4, color2 = c.c2, tr = ns(1), segs = 2 })
+	local scanSpot = Core.emit(scanAtt, {
+		tex = T.glow,
+		color = cs(gold, c.c2),
+		size = ns(2.4, 3.2),
+		transp = ns(0.5, 1),
+		rate = 18,
+		life = nr(0.25, 0.35),
+		locked = true,
+	})
 	B.ring(c, {
 		n = 12,
 		radius = 2,
@@ -809,8 +1694,43 @@ A.Sentinel = function(c: Ctx)
 	B.circle(c, { radius = 1.6, color = gold, width = 0.08, tr = 0.3, at = CF(0, yE - 0.9, 0) })
 	B.sigil(
 		c,
-		{ radius = 5.6, color = gold, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.3, pulse = 2.6 }
+		{ radius = 5.6, color = gold, color2 = c.c2, ticks = 12, spokes = 6, glow = 0.9, spin = 0.3, pulse = 3 }
 	)
+	-- shock rings on the floor (pooled): stomp / slam / footsteps
+	type Shock = { cir: any, t0: number, k: number, at: Vector3 }
+	local shocks: { Shock } = {}
+	for i = 1, 3 do
+		local s: Shock = { cir = nil, t0 = -math.huge, k = 1, at = V(0, c.groundY + 0.06, 0) }
+		s.cir = B.circle(c, {
+			radius = 0.3,
+			color = gold,
+			color2 = c.c2,
+			width = 0.35,
+			tr = 1,
+			n = 6,
+			anchor = function()
+				return CF(s.at)
+			end,
+			radiusFn = function()
+				local age = os.clock() - s.t0
+				return 0.3 + (1 - math.exp(-age * 5)) * 6.5 * s.k
+			end,
+		})
+		shocks[i] = s
+	end
+	local nextShock = 1
+	local function shock(k: number, att: Attachment?)
+		local s = shocks[nextShock]
+		nextShock = nextShock % #shocks + 1
+		s.t0 = os.clock()
+		s.k = k
+		local x, z = 0, 0
+		if att and att.Parent then
+			local p = c.root.CFrame:PointToObjectSpace(att.WorldPosition)
+			x, z = p.X, p.Z
+		end
+		s.at = V(x, c.groundY + 0.06, z)
+	end
 	Core.emit(eyeAtt, {
 		tex = T.spark,
 		color = cs(gold, WHITE),
@@ -847,36 +1767,111 @@ A.Sentinel = function(c: Ctx)
 		life = nr(1.5, 2.5),
 		speed = nr(1.2, 2.5),
 	})
-	Core.light(eyeAtt, gold, 2.4, 14)
+	-- body-anchored bursts: sparks off each foot, from each palm
+	local function burstAt(which: string, col: Color3, up: boolean): (ParticleEmitter?, Attachment?)
+		local att = Core.tip(c, which)
+		if not att then
+			return nil, nil
+		end
+		local e = Core.emit(att, {
+			tex = T.spark,
+			color = cs(col, WHITE),
+			size = ns(0.5, 0),
+			rate = 0,
+			life = nr(0.4, 0.8),
+			speed = if up then nr(6, 12) else nr(8, 16),
+			spread = if up then V2(70, 70) else V2(35, 35),
+			dir = if up then Enum.NormalId.Top else Enum.NormalId.Bottom,
+			accel = if up then V(0, -14, 0) else nil,
+			drag = 2,
+			bright = 2.5,
+		})
+		return e, att
+	end
+	local rFootE, rFoot = burstAt("rfoot", gold, true)
+	local lFootE, lFoot = burstAt("lfoot", gold, true)
+	local rPalmE = burstAt("rhand", c.c2, false)
+	local lPalmE = burstAt("lhand", c.c2, false)
+	local eyeLight = Core.light(eyeAtt, gold, 2.4, 14)
 	B.rootLight(c, gold, 2.2, 16, { pulse = 2.4, amp = 0.8 })
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("stomp", function()
+		shock(1, rFoot)
+		if rFootE then
+			rFootE:Emit(26)
+		end
+	end)
+	on("slam", function()
+		shock(1.35, nil)
+		if rFootE then
+			rFootE:Emit(16)
+		end
+		if lFootE then
+			lFootE:Emit(16)
+		end
+	end)
+	on("step", function(side)
+		local e = if side == "L" then lFootE else rFootE
+		local a = if side == "L" then lFoot else rFoot
+		shock(0.28, a)
+		if e then
+			e:Emit(5)
+		end
+	end)
+	on("push", function()
+		if rPalmE then
+			rPalmE:Emit(22)
+		end
+		if lPalmE then
+			lPalmE:Emit(22)
+		end
+	end)
 	local nextBlink = 0
 	Core.on(c, function(t, _, root)
-		-- shield wall forms in front, later behind (readable from both cameras)
-		local cyc = t % 14
-		local wF = smooth01((cyc - 5) / 0.4) * (1 - smooth01((cyc - 6.6) / 0.4))
-		local wB = smooth01((cyc - 12) / 0.4) * (1 - smooth01((cyc - 13.6) / 0.4))
-		local w = math.max(wF, wB)
-		local wz = if wB > wF then 3.5 else -3.5
-		local wrot = if wB > wF then ANG(0, math.pi, 0) else CFrame.identity
+		-- the wall: forms on "raise", held while the arms block, shoved out + dissolved on "push"
+		local sR, sP = Sync.since(bus, "raise"), Sync.since(bus, "push")
+		local w, shove = 0, 0
+		if sR < sP then
+			w = smooth01(sR / 0.22)
+		elseif sP < 1.2 then
+			shove = smooth01(sP / 0.3) * 3
+			w = 1 - smooth01((sP - 0.15) / 0.6)
+		end
+		local jolt = Sync.env(bus, "stomp", 6) * 0.7 + Sync.env(bus, "step", 12) * -0.12 - Sync.env(bus, "slam", 6) * 0.6
 		for i, p in plates do
 			local a = (i - 1) / 6 * TAU + t * 0.55
-			local orbitCF = outward(a, 4.4, c.chestY + 0.3 + math.sin(t + i) * 0.45)
-			local wallCF = CF(0, c.chestY + 0.3, wz) * wrot * wall[i]
+			local orbitCF = outward(a, 4.4, c.chestY + 0.3 + math.sin(t + i) * 0.45 + jolt * (0.6 + (i % 2) * 0.5))
+			local wallCF = CF(0, c.chestY + 0.3, -3.5 - shove) * wall[i]
 			local cf = root * orbitCF:Lerp(wallCF, w) * ANG(math.pi / 2, 0, 0) * ANG(0, t * 0.5 * (1 - w), 0)
 			B.putHex(p.inner, cf)
 			B.putHex(p.rim, cf * CF(0, 0.04, 0))
 			Core.put(p.emblem, cf * CF(0, -0.07, 0) * ANG(0, math.pi / 4, 0))
 			p.att.Position = root:PointToObjectSpace(cf.Position)
 		end
+		-- searchlight + gaze: during a scan the eye looks where the head looks
+		local scanE = Sync.env(bus, "scan", 1.3)
+		local side = if Sync.payload(bus, "scan") == "L" then -1 else 1
+		local sweep = math.clamp(Sync.since(bus, "scan") / 0.9, 0, 1)
+		local gx, gz = side * (2 + sweep * 4.5), -3.5 + sweep * 2.5
+		scanAtt.Position = V(gx, c.groundY + 0.05, gz)
+		search.Transparency = ns(1 - scanE * 0.55, 1 - scanE * 0.2)
+		scanSpot.Enabled = scanE > 0.15
 		local eyePos = (root * CF(0, yE + math.sin(t * 1.3) * 0.15, 0)).Position
-		local look = CFrame.lookAt(eyePos, camPos())
+		local scanTgt = (root * CF(side * 9, yE - 2.5, -4)).Position
+		local tgt = camPos():Lerp(scanTgt, math.min(1, scanE * 1.6))
+		local look = CFrame.lookAt(eyePos, tgt)
 		Core.put(sclera, look)
+		local flash = math.max(Sync.env(bus, "push", 4), Sync.env(bus, "slam", 5))
+		sclera.Color = gold:Lerp(WHITE, flash)
+		eyeLight.Brightness = 2.4 + flash * 4 + Sync.env(bus, "stomp", 5) * 3
 		local blinkK = 1
 		if t >= nextBlink then
 			nextBlink = t + 3 + c.rng:NextNumber() * 3
 		end
 		local b = nextBlink - t
-		if b < 0.16 then
+		if b < 0.16 and scanE < 0.1 then
 			blinkK = math.max(0.08, math.abs(b - 0.08) / 0.08)
 		end
 		mesh.Scale = V(1, blinkK, 1)
@@ -885,56 +1880,141 @@ A.Sentinel = function(c: Ctx)
 		pupil.Transparency = hide
 		Core.put(iris, look * CF(0, 0, -0.19) * AXIS_Z)
 		Core.put(pupil, look * CF(0, 0, -0.23) * AXIS_Z)
+		-- shock rings fade out as they spread
+		local now = os.clock()
+		for _, s in shocks do
+			local age = now - s.t0
+			B.setBeamsTransparency(s.cir.beams, if age < 0.8 then 0.05 + 0.95 * (age / 0.8) else 1)
+		end
 	end)
 end
 
 ---------------------------------------------------------------- MYTHIC
 
 -- concentric rings 0..3 around the body, core orb at chest
--- parts ~86, emitters 5
+-- parts ~90, emitters 10
+-- Synced to the Blender animation (tools/blender/anim/auras/Kernel.py, levitating set, lift 1.6
+-- studs, idle 6.0 s). The Kernel CONDUCTS its rings: every hand gesture is a command they obey.
+-- Ring motion is integrated per frame (precession + spin) so it can be frozen / boosted smoothly.
+--   "cmd" 1|2   a hand stabs at a ring     -> a command beam fires from that hand (1 = right,
+--                                            2 = left) to the RING k label, ring k flashes white,
+--                                            kicks wider and spins up, sparks from the hand
+--   "lock"      arms snap into a T         -> all rings snap FLAT and FREEZE, flash, labels "LOCKED"
+--   "charge"    hands cup around the core  -> rings contract, sparks stream INTO the core, the shell
+--                                            compresses, labels read "RING 0"
+--   "zero"      arms fling out, body surges-> core nova, shock ring on the REAL floor, rings blast out
+--                                            35 % wider, the sky pillar flares, light surge
+--   "unlock"    arms float down            -> rings ease back into wobble + spin
+--   walk "thrust" / jump "push"            -> small / medium floor shock ring + core spark puff
+--   "intrusion" (VFX -> body, every 10-16 s while hovering in place): a red UNAUTHORIZED process
+--               appears on the outer ring at the front-right; the body's reaction snaps the head to
+--               it and whips the right hand out, its "kill" marker -> cyan kill beam from the right
+--               hand, the process bursts into red squares, ring 3 flashes
+-- Core heartbeat: Sync.phase(bus, 1.5) = 4 beats per idle loop.
 A.Kernel = function(c: Ctx)
+	local bus = c.bus
+	local rng = c.rng
+	local BEAT = 1.5 -- core heartbeat (s), 4 per 6 s idle
+	local RED = Color3.fromRGB(255, 40, 60)
 	local cy = c.chestY + 0.4
-	local function anchor(k: number): (t: number) -> CFrame
-		local amp = 0.55 / (1 + k * 0.6)
-		return function(t: number): CFrame
-			return CF(0, cy, 0)
-				* ANG(
-					math.sin(t * 0.4 + k) * amp,
-					t * (0.3 + k * 0.1) * (if k % 2 == 0 then 1 else -1),
-					math.cos(t * 0.5 + k * 1.3) * amp
-				)
-		end
-	end
 	local spins = { 1.6, -1.2, 0.9, -0.6 }
 	local counts = { 10, 14, 18, 22 }
 	local radii = { 2.3, 3.7, 5.1, 6.6 }
+	-- control state, integrated each frame (registered before the rings so they read fresh values)
+	local lock, charge = 0, 0
+	local yaw = { 0, 0, 0, 0 }
+	local anti = { 0, 0, 0, 0 }
+	local scale = { 1, 1, 1, 1 }
+	local flash = { 0, 0, 0, 0 }
+	local function kickOf(k: number): number
+		local e = 0
+		if Sync.payload(bus, "cmd") == tostring(k) then
+			e = Sync.env(bus, "cmd", 3.5)
+		end
+		if k == 3 then
+			e = math.max(e, Sync.env(bus, "kill", 4))
+		end
+		return e
+	end
+	Core.on(c, function(_, dt)
+		dt = math.min(dt, 0.1)
+		local target = if Sync.since(bus, "lock") < Sync.since(bus, "unlock") then 1 else 0
+		lock += (target - lock) * (1 - math.exp(-dt * (if target > lock then 16 else 2.5)))
+		local sC, sZ = Sync.since(bus, "charge"), Sync.since(bus, "zero")
+		local cT = if sC < sZ and sC < 3 then 1 else 0
+		charge += (cT - charge) * (1 - math.exp(-dt * (if cT > charge then 5 else 12)))
+		local zeroE = Sync.env(bus, "zero", 2.2)
+		local lockE = Sync.env(bus, "lock", 4)
+		for k = 0, 3 do
+			local i = k + 1
+			local kick = kickOf(k)
+			local m = (1 - lock) * (1 + kick * 3)
+			anti[i] += dt * spins[i] * (1 - m)
+			yaw[i] += dt * (0.3 + k * 0.1) * (if k % 2 == 0 then 1 else -1) * (1 - lock)
+			scale[i] = 1 + zeroE * 0.35 + kick * 0.14 - charge * (0.12 + k * 0.05)
+			flash[i] = math.min(1, math.max(kick, lockE, zeroE * 0.8))
+		end
+	end)
+	local function anchor(k: number): (t: number) -> CFrame
+		local amp = 0.55 / (1 + k * 0.6)
+		local i = k + 1
+		return function(t: number): CFrame
+			local a = amp * (1 - lock)
+			return CF(0, cy, 0)
+				* ANG(math.sin(t * 0.4 + k) * a, 0, math.cos(t * 0.5 + k * 1.3) * a)
+				* ANG(0, yaw[i] + anti[i], 0)
+		end
+	end
 	local coreL = V(0, cy, -1.15)
 	local coreAtt = Core.att(c, nil, CF(coreL))
-	local labels: { Attachment } = {}
+	type RingVis = { parts: { BasePart }, base: { Color3 }, beams: { Beam }, lbl: TextLabel, att: Attachment, last: number, text: string }
+	local rings: { RingVis } = {}
 	for k = 0, 3 do
+		local i = k + 1
 		local col = if k % 2 == 0 then c.c1 else c.c2
-		B.ring(c, {
-			n = counts[k + 1],
-			radius = radii[k + 1],
+		local parts = B.ring(c, {
+			n = counts[i],
+			radius = radii[i],
 			seg = V(0.16, 0.24, 0),
 			color = col,
 			color2 = col:Lerp(WHITE, 0.4),
-			spin = spins[k + 1],
+			spin = spins[i],
 			anchor = anchor(k),
+			radiusFn = function()
+				return radii[i] * scale[i]
+			end,
 		})
-		B.circle(c, { radius = radii[k + 1], color = col, width = 0.05, tr = 0.4, anchor = anchor(k), n = 10 })
+		local base = {}
+		for j, p in parts do
+			base[j] = p.Color
+		end
+		local cir = B.circle(c, {
+			radius = radii[i],
+			color = col,
+			width = 0.05,
+			tr = 0.4,
+			anchor = anchor(k),
+			n = 10,
+			radiusFn = function()
+				return radii[i] * scale[i]
+			end,
+		})
 		local att, lbl = B.glyph(c, "RING " .. k, col, V2(1.7, 0.42), F.tech, nil, BLACK)
 		lbl.TextStrokeTransparency = 0.2
-		labels[k + 1] = att
+		rings[i] = { parts = parts, base = base, beams = cir.beams, lbl = lbl, att = att, last = 0, text = "RING " .. k }
 		Core.beam(c, coreAtt, att, col, 0.06, { tr = ns(0.15, 0.7), tex = T.square, texLen = 0.5, texSpeed = 3 })
 	end
 	local core = Core.part(c, V(1.1, 1.1, 1.1), c.c1, NEON, 0.25, BALL)
 	local inner = Core.part(c, V(0.55, 0.55, 0.55), WHITE, NEON, 0, BALL)
 	local shell = Core.part(c, V(1.9, 1.9, 1.9), c.c2, FF, 0, BALL)
-	B.pillar(c, { color = c.c1, color2 = c.c2, height = 45, width = 1.8, tr = 0.45, streams = 3, radius = 1.4 })
+	local pillar = B.pillar(c, { color = c.c1, color2 = c.c2, height = 45, width = 1.8, tr = 0.45, streams = 3, radius = 1.4 })
+	local pillarW: { { number } } = {}
+	for i, b in pillar do
+		pillarW[i] = { b.Width0, b.Width1 }
+	end
 	B.sigil(
 		c,
-		{ radius = 7.2, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.3, pulse = 1.2 }
+		{ radius = 7.2, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.3, pulse = BEAT }
 	)
 	Core.emit(coreAtt, {
 		tex = T.glow,
@@ -945,6 +2025,42 @@ A.Kernel = function(c: Ctx)
 		life = nr(0.4, 0.6),
 		locked = true,
 	})
+	-- core nova on "zero", sparks streaming in while charging
+	local nova = Core.emit(coreAtt, {
+		tex = T.square,
+		color = cs(c.c1, c.c2),
+		size = ns(0.55, 0),
+		transp = ns(0, 1),
+		rate = 0,
+		life = nr(0.8, 1.5),
+		speed = nr(14, 28),
+		spread = V2(180, 180),
+		drag = 3,
+		rotSpeed = nr(-240, 240),
+		bright = 3,
+	})
+	local novaGlow = Core.emit(coreAtt, {
+		tex = T.glow,
+		color = cs(WHITE, c.c1),
+		size = ns(3, 12),
+		transp = ns(0.2, 1),
+		rate = 0,
+		life = nr(0.35, 0.5),
+		locked = true,
+	})
+	local inflow = Core.emit(Core.volume(c, V(6, 6, 6), CF(coreL)), {
+		tex = T.spark,
+		color = cs(c.c2, WHITE),
+		size = ns(0.45, 0.1),
+		rate = 45,
+		life = nr(0.4, 0.55),
+		speed = nr(7, 10),
+		shape = SPHERE,
+		shapeStyle = SURFACE,
+		inout = INWARD,
+		bright = 2.5,
+	})
+	inflow.Enabled = false
 	local torso = Core.att(c, c.torso)
 	Core.emit(torso, {
 		tex = T.spark,
@@ -976,36 +2092,236 @@ A.Kernel = function(c: Ctx)
 		speed = nr(2, 4),
 		rot = nr(0, 0),
 	})
-	local light = B.rootLight(c, c.c1, 3, 18, { y = cy })
-	Core.on(c, function(t, _, root)
-		for k = 0, 3 do
-			local a = t * spins[k + 1] + k
-			local r = radii[k + 1]
-			labels[k + 1].Position = (anchor(k)(t) * CF(math.cos(a) * r, 0.55, math.sin(a) * r)).Position
+	-- command beams from the hands to the ring labels, sparks off the commanding hand
+	local rHand = Core.tip(c, "rhand")
+	local lHand = Core.tip(c, "lhand")
+	local function handSparks(att: Attachment?, col: Color3): ParticleEmitter?
+		if not att then
+			return nil
 		end
-		local beat = Core.pulse(t, 1.2)
+		return Core.emit(att, {
+			tex = T.spark,
+			color = cs(col, WHITE),
+			size = ns(0.45, 0),
+			rate = 0,
+			life = nr(0.3, 0.6),
+			speed = nr(5, 11),
+			spread = V2(40, 40),
+			dir = Enum.NormalId.Bottom,
+			drag = 3,
+			bright = 2.5,
+		})
+	end
+	local rSparks, lSparks = handSparks(rHand, c.c2), handSparks(lHand, c.c2)
+	local function cmdBeam(from: Attachment?, to: Attachment, col: Color3): Beam?
+		if not from then
+			return nil
+		end
+		return Core.beam(c, from, to, WHITE, 0.32, {
+			w1 = 0.1,
+			color2 = col,
+			tr = ns(1),
+			tex = T.square,
+			texLen = 0.6,
+			texSpeed = 9,
+			segs = 4,
+		})
+	end
+	local rBeam = cmdBeam(rHand, rings[2].att, c.c2)
+	local lBeam = cmdBeam(lHand, rings[3].att, c.c1)
+	-- the intruder: a red process on the outer ring, front-right of the body
+	local intrAt = CF(4.6, cy + 0.7, -4.4)
+	local intrAtt, intrLbl = B.glyph(c, "UNAUTHORIZED", RED, V2(2.8, 0.55), F.pixel, intrAt, BLACK)
+	intrLbl.TextTransparency = 1
+	intrLbl.TextStrokeTransparency = 1
+	local intrBox = Core.part(c, V(0.7, 0.7, 0.7), RED, NEON, 1)
+	local killBeam = cmdBeam(rHand, intrAtt, c.c2)
+	local intrBurst = Core.emit(intrAtt, {
+		tex = T.square,
+		color = cs(RED, WHITE),
+		size = ns(0.45, 0),
+		transp = ns(0, 1),
+		rate = 0,
+		life = nr(0.5, 1),
+		speed = nr(6, 14),
+		spread = V2(180, 180),
+		drag = 3,
+		rotSpeed = nr(-300, 300),
+		bright = 3,
+	})
+	-- shock rings on the REAL floor under the levitating body
+	type Shock = { cir: any, t0: number, k: number }
+	local shocks: { Shock } = {}
+	for i = 1, 2 do
+		local s: Shock = { cir = nil, t0 = -math.huge, k = 1 }
+		s.cir = B.circle(c, {
+			radius = 1,
+			color = c.c1,
+			color2 = c.c2,
+			width = 0.35,
+			tr = 1,
+			n = 10,
+			anchor = function()
+				return CF(0, c.groundY - c.lift + 0.08, 0)
+			end,
+			radiusFn = function()
+				local age = os.clock() - s.t0
+				return 1.2 + (1 - math.exp(-age * 3.4)) * 10 * s.k
+			end,
+		})
+		shocks[i] = s
+	end
+	local nextShock = 1
+	local function shock(k: number)
+		local s = shocks[nextShock]
+		nextShock = nextShock % #shocks + 1
+		s.t0 = os.clock()
+		s.k = k
+	end
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("cmd", function(k)
+		local e = if k == "2" then lSparks else rSparks
+		if e then
+			e:Emit(18)
+		end
+	end)
+	on("zero", function()
+		nova:Emit(80)
+		novaGlow:Emit(3)
+		shock(1.2)
+	end)
+	on("push", function()
+		shock(0.75)
+		novaGlow:Emit(1)
+	end)
+	on("thrust", function()
+		shock(0.32)
+		nova:Emit(6)
+	end)
+	on("kill", function()
+		intrBurst:Emit(40)
+		if rSparks then
+			rSparks:Emit(14)
+		end
+	end)
+	local light = B.rootLight(c, c.c1, 3, 18, { y = cy })
+	local nextIntr = Sync.age(bus) + 10 + rng:NextNumber() * 6
+	Core.on(c, function(t, _, root)
+		-- VFX -> body: an unauthorized process tries to get in now and then
+		local age = Sync.age(bus)
+		if age >= nextIntr then
+			nextIntr = age + 10 + rng:NextNumber() * 6
+			if Sync.get(bus, "move") < 0.3 and lock < 0.05 and charge < 0.05 and Sync.since(bus, "zero") > 1.5 then
+				Sync.emit(bus, "intrusion")
+			end
+		end
+		local zeroE = Sync.env(bus, "zero", 2.2)
+		local labelText = if charge > 0.5 then "RING 0" elseif lock > 0.5 then "LOCKED" else nil
+		for k = 0, 3 do
+			local i = k + 1
+			local rv = rings[i]
+			local a = t * spins[i] + k
+			local r = radii[i] * scale[i]
+			rv.att.Position = (anchor(k)(t) * ANG(0, -a, 0) * CF(r, 0.55, 0)).Position
+			local f = flash[i]
+			if math.abs(f - rv.last) > 0.02 or (f == 0 and rv.last ~= 0) then
+				rv.last = f
+				for j, p in rv.parts do
+					p.Color = rv.base[j]:Lerp(WHITE, f)
+				end
+				B.setBeamsTransparency(rv.beams, 0.4 - 0.4 * f)
+				rv.lbl.TextColor3 = rv.base[1]:Lerp(WHITE, f)
+			end
+			local txt = labelText or ("RING " .. k)
+			if txt ~= rv.text then
+				rv.text = txt
+				rv.lbl.Text = txt
+			end
+		end
+		-- command beams
+		local cmdE = Sync.env(bus, "cmd", 4.5)
+		local which = Sync.payload(bus, "cmd")
+		if rBeam then
+			rBeam.Transparency = ns(if which == "1" then 1 - cmdE else 1)
+		end
+		if lBeam then
+			lBeam.Transparency = ns(if which == "2" then 1 - cmdE else 1)
+		end
+		-- the intruder
+		local sI, sK = Sync.since(bus, "intrusion"), Sync.since(bus, "kill")
+		local alive = sI < sK and sI < 2.5
+		local blink = alive and math.noise(t * 9, 3.1) > -0.3
+		intrLbl.TextTransparency = if blink then 0.05 else 1
+		intrLbl.TextStrokeTransparency = if blink then 0.3 else 1
+		intrBox.Transparency = if alive then 0.15 + 0.4 * math.abs(math.sin(t * 20)) else 1
+		Core.put(intrBox, root * intrAt * CF(0, -0.75, 0) * ANG(t * 3, t * 4, 0))
+		if killBeam then
+			killBeam.Transparency = ns(1 - Sync.env(bus, "kill", 5))
+		end
+		-- core: heartbeat on the shared phase, compresses while charging, blows up on zero
+		local ph = Sync.phase(bus, BEAT)
+		local beat = math.exp(-ph * BEAT * 5)
 		local cf = root * CF(coreL)
 		Core.put(core, cf)
 		Core.put(inner, cf)
-		local s = 1.8 + beat * 0.5
+		local s = 1.8 + beat * 0.5 - charge * 0.75 + zeroE * 1.8
 		shell.Size = V(s, s, s)
 		Core.put(shell, cf)
-		light.Brightness = 2.4 + beat * 2.2
+		inflow.Enabled = charge > 0.3
+		light.Brightness = 2.4 + beat * 2.2 + zeroE * 6 + Sync.env(bus, "lock", 4) * 2 + charge * math.random() * 1.5
+		local pw = 1 + zeroE * 1.6 + charge * 0.3
+		for i, b in pillar do
+			b.Width0 = pillarW[i][1] * pw
+			b.Width1 = pillarW[i][2] * pw
+		end
+		local now = os.clock()
+		for _, sh in shocks do
+			local a = now - sh.t0
+			B.setBeamsTransparency(sh.cir.beams, if a < 1.1 then 0.05 + 0.95 * (a / 1.1) else 1)
+		end
 	end)
 end
 
 -- body semi-transparent, white wisps, cloak of fading pixels
--- parts ~90, emitters 4
+-- parts ~92, emitters 9
+-- Synced to the Blender animation (tools/blender/anim/auras/GhostProtocol.py, levitating set,
+-- lift 1 stud, idle 6.0 s). The delayed echoes replay the animated body 0.35 / 0.7 s late, so
+-- every spy gesture ripples through the "everywhere" copies.
+--   "scan" L/R   head snaps over a shoulder -> that echo (L = A, R = B) flares solid, a wisp puff
+--                                             from the head, the DISAVOWED tag glitches
+--   "shh"        finger to the lips          -> the tag goes solid white, a wisp from the right
+--                                             hand, then SILENCE: wisps / light dim for ~0.7 s
+--   "cloak"      cape swirl                  -> the body VANISHES (parts 0.97, skin off, pixel
+--                                             cloak hidden), the cloak bursts off the back as
+--                                             pixels, smoke puff, the echoes fade out
+--   "decloak"    snaps back half a stud away -> white skin flash fading back, a ring of wisps,
+--                                             the echoes snap back in
+--   walk "shed" R/L                          -> pixels shed backward from the cloak
+--   "blink" (walk dropped frame, jump vault) -> skin off + body flashes nearly invisible
+--   "spotted" (reaction)                     -> the VFX fires it when the local camera gets within
+--                                             9 studs (cooldown 9 s); its markers cloak/decloak
+-- The echoes breathe twice per idle cycle (Sync.phase(bus, 6)).
 A.GhostProtocol = function(c: Ctx)
+	local bus = c.bus
+	local rng = c.rng
+	local BEAT = 6 -- idle length (s), GhostProtocol.py
 	local holder = c.folder.Parent
+	type Ghosted = { inst: Instance, base: number, decal: boolean }
+	local ghosted: { Ghosted } = {}
 	for _, d in c.char:GetDescendants() do
 		if holder and d:IsDescendantOf(holder) then
 			continue
 		end
 		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
-			Core.override(c, d, "Transparency", math.max(d.Transparency, 0.6))
+			local base = math.max(d.Transparency, 0.6)
+			Core.override(c, d, "Transparency", base)
+			table.insert(ghosted, { inst = d :: Instance, base = base, decal = false })
 		elseif d:IsA("Decal") then
-			Core.override(c, d, "Transparency", math.max(d.Transparency, 0.7))
+			local base = math.max(d.Transparency, 0.7)
+			Core.override(c, d, "Transparency", base)
+			table.insert(ghosted, { inst = d :: Instance, base = base, decal = true })
 		end
 	end
 	local pale = WHITE:Lerp(c.c1, 0.5)
@@ -1056,7 +2372,7 @@ A.GhostProtocol = function(c: Ctx)
 	B.sigil(c, { radius = 6.5, color = pale, color2 = c.c2, rings = 3, glow = 0.93, pulse = 2.5 })
 	local _, tag = B.glyph(c, "[ DISAVOWED ]", pale, V2(3.6, 0.5), F.tech, CF(0, c.topY + 1.5, 0), c.c2)
 	local back = Core.att(c, c.torso, CF(0, -c.torso.Size.Y * 0.4, c.torso.Size.Z / 2 + 0.4))
-	Core.emit(back, {
+	local backPx = Core.emit(back, {
 		tex = T.square,
 		color = cs(c.c1, c.c2),
 		size = ns(0.3, 0),
@@ -1069,8 +2385,24 @@ A.GhostProtocol = function(c: Ctx)
 		accel = V(0, 1.2, 0),
 		rot = nr(0, 0),
 	})
+	-- one-shot: the cloak tearing off as pixels (cloak / shed)
+	local cloakBurst = Core.emit(Core.att(c, c.torso, CF(0, 0, c.torso.Size.Z / 2 + 0.3)), {
+		tex = T.square,
+		color = cs(WHITE, c.c1, c.c2),
+		size = ns(0.38, 0),
+		transp = ns(0, 1),
+		rate = 0,
+		life = nr(1.2, 2.2),
+		speed = nr(3, 8),
+		spread = V2(70, 70),
+		dir = Enum.NormalId.Back,
+		drag = 2,
+		accel = V(0, 2.5, 0),
+		rotSpeed = nr(-120, 120),
+		shape = BOX,
+	})
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	local smoke = Core.emit(torso, {
 		tex = T.smoke,
 		color = cs(WHITE, c.c1),
 		size = ns(2, 5),
@@ -1083,7 +2415,7 @@ A.GhostProtocol = function(c: Ctx)
 		accel = V(0, 0.8, 0),
 		light = 0.7,
 	})
-	B.floorEmit(c, 5, {
+	local floorSmoke = B.floorEmit(c, 5, {
 		tex = T.smoke,
 		color = cs(WHITE, c.c2),
 		size = ns(3, 6),
@@ -1094,7 +2426,7 @@ A.GhostProtocol = function(c: Ctx)
 		rotSpeed = nr(-20, 20),
 		light = 0.5,
 	})
-	Core.emit(torso, {
+	local wisps = Core.emit(torso, {
 		tex = T.glow,
 		color = cs(WHITE, c.c1),
 		size = ns(0, 0.9, 0),
@@ -1106,22 +2438,154 @@ A.GhostProtocol = function(c: Ctx)
 		drag = 1.2,
 		accel = V(0, 1.5, 0),
 	})
-	B.rootLight(c, pale, 1.8, 16, { pulse = 2.5, amp = 1.2 })
+	-- one-shots: smoke puff on vanish, a ring of wisps on reappear
+	local puff = Core.emit(torso, {
+		tex = T.smoke,
+		color = cs(WHITE, pale),
+		size = ns(2.5, 6),
+		transp = ns(0.55, 1),
+		rate = 0,
+		life = nr(1, 1.6),
+		speed = nr(2, 5),
+		spread = V2(180, 180),
+		drag = 2.5,
+		rotSpeed = nr(-60, 60),
+		light = 0.8,
+	})
+	local ring = Core.emit(torso, {
+		tex = T.glow,
+		color = cs(WHITE, c.c1),
+		size = ns(0.9, 0),
+		transp = ns(0, 1),
+		rate = 0,
+		life = nr(0.6, 1),
+		speed = nr(9, 14),
+		spread = V2(180, 6),
+		drag = 3,
+		bright = 3,
+		orient = PERP,
+	})
+	ring.Rotation = nr(0, 0)
+	ring.EmissionDirection = Enum.NormalId.Front
+	-- body-borne wisps: from the head on a scan, from the right hand on the "shh"
+	local function tipWisp(which: string): ParticleEmitter?
+		local att = Core.tip(c, which)
+		if not att then
+			return nil
+		end
+		return Core.emit(att, {
+			tex = T.glow,
+			color = cs(WHITE, c.c1),
+			size = ns(0.6, 0),
+			transp = ns(0.1, 1),
+			rate = 0,
+			life = nr(0.6, 1.1),
+			speed = nr(1.5, 3.5),
+			spread = V2(180, 180),
+			drag = 2,
+			accel = V(0, 2, 0),
+			bright = 2,
+		})
+	end
+	local headWisp = tipWisp("head")
+	local handWisp = tipWisp("rhand")
+	local light = B.rootLight(c, pale, 1.8, 16, { pulse = 2.5, amp = 1.2 })
+
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("scan", function()
+		if headWisp then
+			headWisp:Emit(10)
+		end
+	end)
+	on("shh", function()
+		if handWisp then
+			handWisp:Emit(12)
+		end
+	end)
+	on("cloak", function()
+		cloakBurst:Emit(46)
+		puff:Emit(6)
+	end)
+	on("decloak", function()
+		ring:Emit(36)
+		puff:Emit(3)
+	end)
+	on("shed", function()
+		cloakBurst:Emit(9)
+	end)
+	on("blink", function()
+		cloakBurst:Emit(5)
+	end)
+
 	local ts = c.torso.Size
+	local lastSpot = -math.huge
+	local skinTr = -1
 	Core.on(c, function(t)
 		local tcf = c.torso.CFrame
-		local cloakOff = (t % 6) < 0.3
-		for _, sp in skin do
-			sp.Transparency = if cloakOff then 1 else 0
+		local age = Sync.age(bus)
+		-- the local camera comes close -> "spotted" (the body reaction cloaks and decloaks)
+		if age - lastSpot > 9 and age > 2 and Sync.get(bus, "move") < 0.3 then
+			local camD = (camPos() - c.realRoot.Position).Magnitude
+			if camD < 9 and camD > 2.5 then -- not in first person
+				lastSpot = age
+				Sync.emit(bus, "spotted")
+			end
 		end
-		local ea = 0.55 + 0.45 * Core.pulse(t, 3.2)
-		local eb = 0.55 + 0.45 * Core.pulse(t, 3.2, 0.5)
+		-- vanish state: from "cloak" until "decloak"; the walk / vault blink drops a frame
+		local sCloak, sDecl = Sync.since(bus, "cloak"), Sync.since(bus, "decloak")
+		local hidden = sCloak < sDecl and sCloak < 1.5
+		local blink = Sync.since(bus, "blink") < 0.08
+		local back = if hidden then 0 else math.clamp(sDecl / 0.5, 0, 1) -- fade-in after decloak
+		local vis = if hidden then 0 elseif blink then 0.15 else back
+		for _, g in ghosted do
+			local tr = g.base + (if g.decal then 1 - g.base else 0.97 - g.base) * (1 - vis)
+			;(g.inst :: any).Transparency = tr
+		end
+		-- skin: white flash right after decloak, off while hidden / blinking
+		local flash = Sync.env(bus, "decloak", 5)
+		local str = if hidden or blink then 1 else 0
+		if str ~= skinTr then
+			skinTr = str
+			for _, sp in skin do
+				sp.Transparency = str
+			end
+		end
+		for _, sp in skin do
+			sp.Color = c.c1:Lerp(WHITE, flash)
+		end
+		-- echoes: breathe twice per idle cycle, flare on the scan of their side, fade while hidden
+		local ph = Sync.phase(bus, BEAT)
+		local scanE = Sync.env(bus, "scan", 3.5)
+		local scanSide = Sync.payload(bus, "scan")
+		local gone = if hidden then math.clamp(sCloak / 0.4, 0, 1) else 0
+		local ea = 0.55 + 0.45 * Core.pulse(ph * 2, 1)
+		local eb = 0.55 + 0.45 * Core.pulse(ph * 2, 1, 0.5)
+		if scanSide == "L" then
+			ea -= scanE * 0.5
+		elseif scanSide == "R" then
+			eb -= scanE * 0.5
+		end
+		local snapIn = Sync.env(bus, "decloak", 7) * 0.4
+		ea = math.clamp(ea - snapIn + gone, 0.05, 1)
+		eb = math.clamp(eb - snapIn + gone, 0.05, 1)
 		for _, p in echoA do
 			p.Transparency = ea
 		end
 		for _, p in echoB do
 			p.Transparency = eb
 		end
+		-- silence after the "shh": wisps and light dim for ~0.7 s
+		local sShh = Sync.since(bus, "shh")
+		local quiet = sShh > 0.25 and sShh < 0.95
+		local enabled = not quiet and not hidden
+		wisps.Enabled = enabled
+		smoke.Enabled = not quiet
+		floorSmoke.Enabled = not quiet
+		backPx.Enabled = enabled and not blink
+		light.Brightness *= if quiet then 0.35 elseif hidden then 0.6 else 1 + flash * 1.5
+		-- pixel cloak on the back (hidden with the body)
 		for _, q in px do
 			local row, col = q.row, q.col
 			local flare = row / (ROWS - 1)
@@ -1131,31 +2595,84 @@ A.GhostProtocol = function(c: Ctx)
 			local tr = math.clamp(math.noise(col * 0.7, row * 0.7, t * 0.8) * 1.2 + 0.1, 0, 0.7)
 			local drift = Vector3.zero
 			if row >= ROWS - 3 then
-				local ph = (t * 0.3 + q.seed) % 1
-				if ph > 0.5 then
-					local f = (ph - 0.5) / 0.5
+				local cph = (t * 0.3 + q.seed) % 1
+				if cph > 0.5 then
+					local f = (cph - 0.5) / 0.5
 					drift = V(math.sin(q.seed * 20) * f * 1.4, f * 2.6, f * 4)
 					tr = math.max(tr, f)
 				end
 			end
+			if hidden or blink then
+				tr = 1
+			elseif back < 1 then
+				-- pixels re-assemble row by row after decloak
+				tr = math.max(tr, if back * ROWS > row then 0 else 1)
+			end
 			q.p.Transparency = tr
 			Core.put(q.p, tcf * CF(V(x, y, z) + drift) * ANG(-0.25 * flare, 0, 0))
 		end
-		tag.TextTransparency = if math.noise(t * 2, 7) > 0.25 then 0.85 else 0.1
+		-- DISAVOWED tag: noise flicker, glitches on a scan, solid white on the "shh"
+		if sShh < 1.2 then
+			tag.TextTransparency = 0
+			tag.TextColor3 = WHITE
+		else
+			tag.TextColor3 = pale
+			local glitch = scanE > 0.6 and rng:NextNumber() < 0.5
+			tag.TextTransparency = if hidden then 1
+				elseif glitch then 0.95
+				elseif math.noise(t * 2, 7) > 0.25 then 0.85
+				else 0.1
+		end
 	end)
 end
 
 -- six neon wings, halo of code, feather pixels falling
--- parts ~84, emitters 6
+-- parts ~84, emitters 9
+-- Synced to the Blender animation (tools/blender/anim/auras/CyberSeraph.py, levitating set,
+-- lift 2 studs, idle 6.0 s). The ARMS are the wing muscles: every frame each side's three wings
+-- read that arm's elevation / forward sweep (upper wing follows fast, lower wings lag behind =
+-- overlapping action), so every flap, the prayer and the V of the Blender clip are wing beats.
+-- The wings ride the torso and the halo / sun disc ride the head.
+--   "flap" [soft|big]  downstroke  -> wings are pushed down, a downdraft ring of light races over
+--                                    the real ground, feather pixels shed, halo light pops
+--   "gather"           prayer      -> the code halo is pulled in tight, light drains, sparks
+--                                    stream INTO the chest until "radiate"
+--   "radiate"          arms V      -> halo flash + ring pops wide, light-feather nova from the
+--                                    chest, the sky pillar flares wide, big ground ring, light surge
+--   walk "glide"       wing beat   -> small feather puff + soft ground ring
+--   "recompile" (VFX -> body)      -> fired every 11-17 s while idle: the body's glitch reaction;
+--     its "glitch" marker          -> feathers flicker out at random, the halo prints garbage
+--     its "rebuild" marker         -> wings re-materialise with a sparkle burst, halo flash
+-- Sigil / halo spin breathe with the idle (Sync.phase(bus, 6)).
 A.CyberSeraph = function(c: Ctx)
 	local rng = c.rng
-	type WingSpec = { y: number, p0: number, p1: number, l0: number, l1: number, yaw: number, ph: number, w: number }
-	local specs: { WingSpec } = {
-		{ y = c.chestY + 0.75, p0 = 0.2, p1 = 1.05, l0 = 7.2, l1 = 4.6, yaw = 0.26, ph = 0, w = 0.6 },
-		{ y = c.chestY + 0.35, p0 = 1.08, p1 = 1.78, l0 = 6, l1 = 3.8, yaw = 0.34, ph = 0.45, w = 0.55 },
-		{ y = c.chestY - 0.05, p0 = 1.9, p1 = 2.6, l0 = 4.4, l1 = 2.7, yaw = 0.42, ph = 0.9, w = 0.48 },
+	local bus = c.bus
+	local BEAT = 6 -- idle length (s), CyberSeraph.py
+	type WingSpec = {
+		y: number,
+		p0: number,
+		p1: number,
+		l0: number,
+		l1: number,
+		yaw: number,
+		ph: number,
+		w: number,
+		rate: number,
 	}
-	type Wing = { spec: WingSpec, s: number, bone: BasePart, feathers: { BasePart } }
+	-- y = root-space height of the wing root; rate = how fast the wing follows its arm (1/s)
+	local specs: { WingSpec } = {
+		{ y = c.chestY + 0.75, p0 = 0.2, p1 = 1.05, l0 = 7.2, l1 = 4.6, yaw = 0.26, ph = 0, w = 0.6, rate = 16 },
+		{ y = c.chestY + 0.35, p0 = 1.08, p1 = 1.78, l0 = 6, l1 = 3.8, yaw = 0.34, ph = 0.45, w = 0.55, rate = 10 },
+		{ y = c.chestY - 0.05, p0 = 1.9, p1 = 2.6, l0 = 4.4, l1 = 2.7, yaw = 0.42, ph = 0.9, w = 0.48, rate = 6.5 },
+	}
+	type Wing = {
+		spec: WingSpec,
+		s: number,
+		bone: BasePart,
+		feathers: { BasePart },
+		r: number,
+		yawS: number,
+	}
 	local wings: { Wing } = {}
 	local NF = 6
 	for _, sp in specs do
@@ -1172,15 +2689,28 @@ A.CyberSeraph = function(c: Ctx)
 					B.tipTrail(fp, V(-hw, L / 2 - 0.05, 0), V(hw, L / 2 - 0.05, 0), WHITE, 0.6, c.c2)
 				end
 			end
-			table.insert(
-				wings,
-				{ spec = sp, s = s, bone = Core.part(c, V(0.24, sp.l0 * 0.62, 0.16), c.c2), feathers = fs }
-			)
+			table.insert(wings, {
+				spec = sp,
+				s = s,
+				bone = Core.part(c, V(0.24, sp.l0 * 0.62, 0.16), c.c2),
+				feathers = fs,
+				r = 0,
+				yawS = sp.yaw,
+			})
 		end
 	end
-	-- halo of code
-	local yH = c.topY + 0.95
+	-- halo of code: rides the head (root-local frame of the head, recomputed every frame)
+	local hUp = c.topY - c.headY + 0.95
 	local haloTilt = ANG(0.15, 0, 0)
+	local headLocal = CF(0, c.headY, 0)
+	local haloR = 1.3
+	-- registered first so every halo / disc anchor below reads this frame's head
+	Core.on(c, function()
+		headLocal = c.root.CFrame:ToObjectSpace(c.head.CFrame)
+	end)
+	local function haloCF(t: number): CFrame
+		return headLocal * CF(0, hUp + math.sin(t * 1.5) * 0.08, 0) * haloTilt
+	end
 	B.ring(c, {
 		n = 20,
 		radius = 1.3,
@@ -1188,16 +2718,37 @@ A.CyberSeraph = function(c: Ctx)
 		color = WHITE,
 		color2 = c.c2,
 		spin = 0.6,
-		anchor = function(t)
-			return CF(0, yH + math.sin(t * 1.5) * 0.08, 0) * haloTilt
+		anchor = haloCF,
+		radiusFn = function()
+			return haloR
 		end,
 	})
-	B.circle(c, { radius = 1.3, color = c.c2, width = 0.16, tr = 0.05, at = CF(0, yH, 0) * haloTilt })
-	B.circle(c, { radius = 1.75, color = WHITE, width = 0.05, tr = 0.35, at = CF(0, yH, 0) * haloTilt })
+	local haloIn = B.circle(c, {
+		radius = 1.3,
+		color = c.c2,
+		width = 0.16,
+		tr = 0.05,
+		anchor = haloCF,
+		radiusFn = function()
+			return haloR
+		end,
+	})
+	local haloOut = B.circle(c, {
+		radius = 1.75,
+		color = WHITE,
+		width = 0.05,
+		tr = 0.35,
+		anchor = haloCF,
+		radiusFn = function()
+			return haloR * 1.35
+		end,
+	})
 	-- sun disc behind the head (reads from the front and from behind)
-	local discCF = CF(0, c.headY + 0.5, 0.75) * ANG(math.pi / 2, 0, 0)
-	B.circle(c, { radius = 2.3, color = c.c2, width = 0.12, tr = 0.25, at = discCF, n = 8 })
-	B.circle(c, { radius = 2.65, color = WHITE, width = 0.05, tr = 0.4, at = discCF, n = 8 })
+	local function discCF(): CFrame
+		return headLocal * CF(0, 0.5, 0.75) * ANG(math.pi / 2, 0, 0)
+	end
+	B.circle(c, { radius = 2.3, color = c.c2, width = 0.12, tr = 0.25, anchor = discCF, n = 8 })
+	B.circle(c, { radius = 2.65, color = WHITE, width = 0.05, tr = 0.4, anchor = discCF, n = 8 })
 	type Gl = { att: Attachment, lbl: TextLabel }
 	local code: { Gl } = {}
 	for i = 1, 12 do
@@ -1205,11 +2756,45 @@ A.CyberSeraph = function(c: Ctx)
 		lbl.TextStrokeTransparency = 0.6
 		code[i] = { att = att, lbl = lbl }
 	end
-	B.pillar(c, { color = WHITE, color2 = c.c2, height = 55, width = 3.4, tr = 0.6, streams = 3, radius = 1.6 })
+	local pillar =
+		B.pillar(c, { color = WHITE, color2 = c.c2, height = 55, width = 3.4, tr = 0.6, streams = 3, radius = 1.6 })
+	local pillarW: { { number } } = {}
+	for i, b in pillar do
+		pillarW[i] = { b.Width0, b.Width1 }
+	end
 	B.sigil(
 		c,
 		{ radius = 7, color = WHITE, color2 = c.c2, ticks = 16, spokes = 6, glow = 0.9, spin = 0.25, pulse = 3.0 }
 	)
+	-- downdraft rings on the REAL ground under the levitating body (two, so beats can overlap)
+	type Draft = { cir: any, t0: number, k: number }
+	local drafts: { Draft } = {}
+	for i = 1, 2 do
+		local d: Draft = { cir = nil, t0 = -math.huge, k = 1 }
+		d.cir = B.circle(c, {
+			radius = 1,
+			color = WHITE,
+			color2 = c.c2,
+			width = 0.3,
+			tr = 1,
+			n = 10,
+			anchor = function()
+				return CF(0, c.groundY - c.lift + 0.08, 0)
+			end,
+			radiusFn = function()
+				local s = os.clock() - d.t0
+				return 1.2 + (1 - math.exp(-s * 3.2)) * 9 * d.k
+			end,
+		})
+		drafts[i] = d
+	end
+	local nextDraft = 1
+	local function draft(k: number)
+		local d = drafts[nextDraft]
+		nextDraft = nextDraft % #drafts + 1
+		d.t0 = os.clock()
+		d.k = k
+	end
 	-- falling light feathers from above
 	local sky = Core.volume(c, V(10, 1, 6), CF(0, c.topY + 6, 0.8))
 	Core.emit(sky, {
@@ -1252,7 +2837,34 @@ A.CyberSeraph = function(c: Ctx)
 		rotSpeed = nr(-90, 90),
 		shape = BOX,
 	})
-	local haloAtt = Core.att(c, nil, CF(0, yH, 0))
+	-- one-shot: feathers shed by a wing beat (flap / glide) and the rebuild sparkle
+	local shed = Core.emit(wingVol, {
+		tex = T.square,
+		color = cs(WHITE, c.c2),
+		size = ns(0.34, 0),
+		transp = ns(0, 1),
+		squash = ns(1.4),
+		rate = 0,
+		life = nr(1.4, 2.4),
+		speed = nr(2, 5),
+		spread = V2(180, 180),
+		accel = V(0, -3, 0),
+		drag = 1.5,
+		rotSpeed = nr(-160, 160),
+		shape = BOX,
+	})
+	local sparkle = Core.emit(wingVol, {
+		tex = T.spark,
+		color = cs(WHITE, c.c2),
+		size = ns(0, 0.8, 0),
+		rate = 0,
+		life = nr(0.5, 1),
+		speed = nr(0.5, 2),
+		spread = V2(180, 180),
+		bright = 3,
+		shape = BOX,
+	})
+	local haloAtt = Core.att(c, nil, CF(0, c.topY + 0.95, 0))
 	Core.emit(haloAtt, {
 		tex = T.spark,
 		color = cs(WHITE, c.c2),
@@ -1271,6 +2883,35 @@ A.CyberSeraph = function(c: Ctx)
 		life = nr(0.9, 1.3),
 		locked = true,
 	})
+	-- chest: light streams IN while praying, a nova of light feathers OUT on "radiate"
+	local chest = Core.tip(c, "chest") or Core.att(c, c.torso)
+	local inflow = Core.emit(Core.volume(c, V(5, 5, 5), CF(0, 0, 0), c.torso), {
+		tex = T.spark,
+		color = cs(c.c2, WHITE),
+		size = ns(0.5, 0.1),
+		rate = 40,
+		life = nr(0.45, 0.6),
+		speed = nr(6, 9),
+		shape = SPHERE,
+		shapeStyle = SURFACE,
+		inout = INWARD,
+		bright = 2.5,
+	})
+	inflow.Enabled = false
+	local nova = Core.emit(chest, {
+		tex = T.square,
+		color = cs(WHITE, c.c2),
+		size = ns(0.5, 0),
+		transp = ns(0, 1),
+		squash = ns(1.4),
+		rate = 0,
+		life = nr(1, 1.8),
+		speed = nr(14, 26),
+		spread = V2(180, 180),
+		drag = 3,
+		rotSpeed = nr(-200, 200),
+		bright = 3,
+	})
 	B.floorEmit(c, 5.5, {
 		tex = T.glow,
 		color = cs(WHITE, c.c2),
@@ -1280,48 +2921,167 @@ A.CyberSeraph = function(c: Ctx)
 		life = nr(2, 3),
 		speed = nr(1, 2.2),
 	})
-	B.rootLight(c, WHITE, 2.8, 18, { pulse = 3, amp = 1 })
-	Core.light(haloAtt, c.c2, 2, 12)
+	local rootL = B.rootLight(c, WHITE, 2.8, 18, { pulse = 3, amp = 1 })
+	local haloL = Core.light(haloAtt, c.c2, 2, 12)
+
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("flap", function(kind)
+		local k = if kind == "soft" then 0.65 elseif kind == "big" then 1.35 else 1
+		draft(k)
+		shed:Emit(math.floor(22 * k))
+	end)
+	on("glide", function()
+		draft(0.45)
+		shed:Emit(6)
+	end)
+	on("radiate", function()
+		nova:Emit(70)
+		draft(1.5)
+	end)
+	on("rebuild", function()
+		sparkle:Emit(50)
+	end)
+
+	-- arm -> wing drive: elevation of the arm above "hanging" and how far it sweeps fwd / back
+	local rArm = Core.bodyPart(c.char, "Right Arm", "RightUpperArm")
+	local lArm = Core.bodyPart(c.char, "Left Arm", "LeftUpperArm")
+	local function armDrive(arm: BasePart?): (number, number)
+		if not arm then
+			return 0, 0
+		end
+		local d = c.torso.CFrame:VectorToObjectSpace(-arm.CFrame.UpVector)
+		local elev = math.acos(math.clamp(-d.Y, -1, 1))
+		return math.clamp((elev - 0.55) / 1.2, -0.5, 1.3), math.clamp(d.Z, -1, 1)
+	end
+	local GARBAGE = { "#", "%", "&", "?", "!", "/", "\\", "@", "x", "~" }
 	local nextC = 0
-	Core.on(c, function(t, _, root)
+	local nextRecompile = Sync.age(bus) + 11 + rng:NextNumber() * 6
+	Core.on(c, function(t, dt)
+		local age = Sync.age(bus)
+		-- VFX -> body: the angel's code glitches now and then while it hovers in place
+		if age >= nextRecompile then
+			nextRecompile = age + 11 + rng:NextNumber() * 6
+			if Sync.get(bus, "move") < 0.3 and Sync.since(bus, "radiate") > 1.5 then
+				Sync.emit(bus, "recompile")
+			end
+		end
+		local glitching = Sync.window(bus, "glitch", 0.65) >= 0 and Sync.since(bus, "rebuild") > Sync.since(bus, "glitch")
+		local ePush = Sync.env(bus, "flap", 7) * (if Sync.payload(bus, "flap") == "soft" then 0.25 else 0.45)
+		local eRad = Sync.env(bus, "radiate", 3)
+		local eReb = Sync.env(bus, "rebuild", 6)
+		local tcf = c.torso.CFrame
+		local rR, rB = armDrive(rArm)
+		local lR, lB = armDrive(lArm)
 		for _, w in wings do
 			local sp = w.spec
 			local s = w.s
-			local flap = math.sin(t * 1.5 + sp.ph)
-			local base = root
-				* CF(s * 0.35, sp.y + flap * 0.08, 0.6)
-				* ANG(0, -s * (sp.yaw + flap * 0.22), 0)
-				* ANG(-0.12 + flap * 0.06, 0, 0)
-			Core.put(w.bone, base * ANG(0, 0, -s * (sp.p0 - 0.1)) * CF(0, sp.l0 * 0.31, -0.04))
+			local ar, ab = rR, rB
+			if s < 0 then
+				ar, ab = lR, lB
+			end
+			-- lag: upper wings follow the arm fast, lower ones slower
+			local a = 1 - math.exp(-dt * sp.rate)
+			w.r += (ar - ePush + eRad * 0.25 - w.r) * a
+			local yawT = sp.yaw + math.max(ab, 0) * 0.5 + math.min(ab, 0) * 1.1
+			w.yawS += (yawT - w.yawS) * a
+			local ripple = math.sin(t * 1.5 + sp.ph) * 0.05
+			local r = w.r + ripple
+			local base = tcf
+				* CF(s * 0.35, sp.y - c.chestY + ripple * 0.6, 0.6)
+				* ANG(0, -s * w.yawS, 0)
+				* ANG(-0.12 + ripple, 0, 0)
+			Core.put(w.bone, base * ANG(0, 0, -s * ((sp.p0 - 0.1) * (1 - 0.22 * r) - 0.4 * r)) * CF(0, sp.l0 * 0.31, -0.04))
 			for j, f in w.feathers do
-				local phi = (sp.p0 + (sp.p1 - sp.p0) * (j - 1) / (NF - 1)) * (1 + flap * 0.07)
+				local phi = sp.p0 + (sp.p1 - sp.p0) * (j - 1) / (NF - 1)
+				phi = phi * (1 - 0.22 * r) - 0.4 * r
 				Core.put(f, base * ANG(0, 0, -s * phi) * CF(0, f.Size.Y / 2, 0.03 * j))
+				f.Transparency = if glitching and rng:NextNumber() < 0.45 then 1 else 0.04 * (1 - eReb)
 			end
 		end
+		-- halo radius: pulled in while praying, pops wide on radiate
+		local sG, sRad = Sync.since(bus, "gather"), Sync.since(bus, "radiate")
+		local praying = sG < sRad and sG < 1.2
+		inflow.Enabled = praying
+		local pull = if praying then smooth01(sG / 0.5) else 0
+		haloR = 1.3 * (1 - pull * 0.4) * (1 + eRad * 0.6)
+		local haloTr = if praying then 0.05 + pull * 0.3 else 0.05 * (1 - eRad)
+		B.setBeamsTransparency(haloIn.beams, haloTr)
+		B.setBeamsTransparency(haloOut.beams, 0.35 * (1 - eRad) + pull * 0.3)
+		-- pillar flares wide on radiate
+		local wide = 1 + eRad * 1.6 + Sync.env(bus, "flap", 5) * 0.15
+		for i, b in pillar do
+			b.Width0 = pillarW[i][1] * wide
+			b.Width1 = pillarW[i][2] * wide
+		end
+		-- lights: drain while praying, pop on beats, surge on radiate
+		local pop = Sync.env(bus, "flap", 6) * 0.8 + eReb * 1.5
+		rootL.Brightness = rootL.Brightness * (1 - pull * 0.55) + eRad * 5 + pop
+		haloL.Brightness = 2 * (1 - pull * 0.5) + eRad * 6 + pop * 2
+		haloAtt.Position = (headLocal * CF(0, hUp, 0)).Position
+		-- downdraft rings fade out as they spread
+		for _, d in drafts do
+			local s = os.clock() - d.t0
+			B.setBeamsTransparency(d.cir.beams, if s < 1.1 then 0.1 + s / 1.1 * 0.9 else 1)
+		end
+		-- code glyphs: circle the halo, converge while praying, garbage while glitching
 		local change = t >= nextC
 		if change then
 			nextC = t + 0.12
 		end
-		local hcf = CF(0, yH, 0) * haloTilt
+		local hcf = haloCF(t)
+		local spin = Sync.phase(bus, BEAT) * TAU * 0.9 * BEAT
+		local cr = 1.75 * (1 - pull * 0.55) * (1 + eRad * 0.8)
 		for i, g in code do
-			local a = (i - 1) / 12 * TAU - t * 0.9
-			g.att.Position = (hcf * CF(math.cos(a) * 1.75, 0.1, math.sin(a) * 1.75)).Position
-			if change and rng:NextNumber() < 0.3 then
-				g.lbl.Text = if rng:NextNumber() < 0.5 then "0" else "1"
+			local ang = (i - 1) / 12 * TAU - spin
+			g.att.Position = (hcf * CF(math.cos(ang) * cr, 0.1, math.sin(ang) * cr)).Position
+			if glitching then
+				if change then
+					g.lbl.Text = GARBAGE[rng:NextInteger(1, #GARBAGE)]
+				end
+				g.lbl.TextColor3 = if rng:NextNumber() < 0.3 then Color3.fromRGB(255, 43, 214) else c.c2
+			else
+				g.lbl.TextColor3 = c.c2:Lerp(WHITE, eRad)
+				if change and rng:NextNumber() < 0.3 then
+					g.lbl.Text = if rng:NextNumber() < 0.5 then "0" else "1"
+				end
 			end
 		end
 	end)
 end
 
 -- blue panels with sad face text orbiting, error popups
--- parts ~67, emitters 4
+-- parts ~67, emitters 11
+-- Synced to the Blender animation (tools/blender/anim/auras/BlueScreen.py, grounded set, idle
+-- 6.0 s). The body IS the PC that crashes, the screens around it crash with it:
+--   "key" R/L    finger tap while typing   -> blue/white pixels fly off that hand
+--   "enter"      the enter-key slam         -> an error popup opens right in front of the player
+--   "lag"        dropped frames / rewind    -> the orbiting panels hitch BACKWARDS, pixels re-scatter
+--   "crash"      snap into the frozen T-pose -> BLUE SCREEN flash, every popup bursts open, the
+--                                            panels kick outward and FREEZE, "% complete" races
+--                                            0 -> 100 during the freeze, chest pixel burst
+--   "glitch"     arm + head drop out of it  -> dead pixels re-scatter, chest burst, panels flicker
+--   "restart"    the body powers off        -> lights out: screens go black, light dims, spinner,
+--                                            pixels, popups hidden, emitters off until "boot"
+--   "boot"       snaps upright              -> white flash, screens back at "0% complete", burst
+--   "scratch"    hand on the back of the head -> little pixel squares pop off the head
+--   "shrug"      ":(" arms out               -> an error popup spawns at EACH hand, soft flash
+--   walk "lag"   dropped frames in the gait  -> panels hitch backwards, pixels re-scatter
+--   "step" (free)                           -> a puff of blue pixel squares at that foot
+-- And the other way round: every 6-10 s of walking the VFX fires "freeze" -> the body's "frozen"
+-- reaction (T-pose slide): "stall" = flash + popups + panels freeze, "unfreeze" = resume + puff.
+-- Landing ("stumble" reaction) -> "impact": floor pixel burst + flash.
 A.BlueScreen = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	type Panel = { body: BasePart, bar: BasePart, pct: TextLabel }
 	local panels: { Panel } = {}
 	local pcts: { TextLabel } = {}
+	local guis: { SurfaceGui } = {}
 	local function bsod(part: BasePart, face: Enum.NormalId, pps: number): TextLabel
 		local sg = Core.surface(part, face, pps)
+		table.insert(guis, sg)
 		local bg = Core.frame(sg, c.c1, UDim2.fromScale(0, 0), UDim2.fromScale(1, 1))
 		Core.label(
 			bg,
@@ -1385,16 +3145,18 @@ A.BlueScreen = function(c: Ctx)
 	local monFrame = Core.part(c, V(5.4, 3.3, 0.05), c.c1:Lerp(WHITE, 0.5), NEON)
 	type Pop = { win: BasePart, title: BasePart, x: BasePart, cf: CFrame, t0: number, life: number }
 	local pops: { Pop } = {}
-	local codes = { "0x000000EF", "0x0000007B", "0xC000021A", "0x00000050", "0x0000001E" }
+	local codes = { "0x000000EF", "0x0000007B", "0xC000021A", "0x00000050", "0x0000001E", "0x00000133", "0x0000009F" }
 	local msgs = {
 		"Critical process died.",
 		"Inaccessible boot device.",
 		"Page fault in nonpaged area.",
 		"Kernel security check failure.",
 		"IRQL not less or equal.",
+		"DPC watchdog violation.",
+		"Driver power state failure.",
 	}
 	local PW, PH = 1.9, 1.05
-	for i = 1, 5 do
+	for i = 1, 7 do
 		local win = Core.part(c, V(PW, PH, 0.05), Color3.fromRGB(225, 228, 235), SMOOTH)
 		local sg = Core.surface(win, Enum.NormalId.Front, 80)
 		local icon = Core.label(sg, "X", WHITE, F.tech, UDim2.fromScale(0.05, 0.3), UDim2.fromScale(0.16, 0.3))
@@ -1448,7 +3210,7 @@ A.BlueScreen = function(c: Ctx)
 		{ radius = 6.6, color = c.c1, color2 = c.c2, ticks = 16, spokes = 8, glow = 0.88, spin = 0.35, pulse = 3.4 }
 	)
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	local eSquares = Core.emit(torso, {
 		tex = T.square,
 		color = cs(c.c1, WHITE),
 		size = ns(0.25, 0),
@@ -1458,7 +3220,7 @@ A.BlueScreen = function(c: Ctx)
 		spread = V2(180, 180),
 		rot = nr(0, 0),
 	})
-	Core.emit(torso, {
+	local eSparks = Core.emit(torso, {
 		tex = T.spark,
 		color = cs(WHITE, c.c1),
 		size = ns(0, 0.45, 0),
@@ -1467,7 +3229,7 @@ A.BlueScreen = function(c: Ctx)
 		speed = nr(1, 2),
 		spread = V2(180, 180),
 	})
-	Core.emit(torso, {
+	local eGlow = Core.emit(torso, {
 		tex = T.glow,
 		color = cs(c.c1),
 		size = ns(4, 6),
@@ -1476,7 +3238,7 @@ A.BlueScreen = function(c: Ctx)
 		life = nr(0.8, 1.2),
 		locked = true,
 	})
-	B.floorEmit(c, 5.5, {
+	local eFloor = B.floorEmit(c, 5.5, {
 		tex = T.square,
 		color = cs(c.c1, WHITE),
 		size = ns(0.3, 0),
@@ -1486,88 +3248,364 @@ A.BlueScreen = function(c: Ctx)
 		speed = nr(1.5, 3.5),
 		rot = nr(0, 0),
 	})
+	local idleRates = { [eSquares] = 16, [eSparks] = 10, [eGlow] = 3, [eFloor] = 22 }
+	-- burst emitters (rate 0) fired by the animation's markers
+	local chestBurst = Core.emit(Core.tip(c, "chest") or torso, {
+		tex = T.square,
+		color = cs(WHITE, c.c1),
+		size = ns(0.5, 0.1),
+		rate = 0,
+		life = nr(0.4, 0.9),
+		speed = nr(10, 20),
+		spread = V2(180, 180),
+		drag = 3,
+		rot = nr(0, 0),
+		bright = 3,
+	})
+	local function pixFx(which: string, spread: number, speed: number): ParticleEmitter?
+		local att = Core.tip(c, which)
+		if not att then
+			return nil
+		end
+		return Core.emit(att, {
+			tex = T.square,
+			color = cs(WHITE, c.c1),
+			size = ns(0.22, 0.04),
+			rate = 0,
+			life = nr(0.25, 0.55),
+			speed = nr(speed * 0.6, speed),
+			spread = V2(spread, spread),
+			dir = Enum.NormalId.Bottom,
+			accel = V(0, -10, 0),
+			drag = 2,
+			rot = nr(0, 0),
+			bright = 2,
+		})
+	end
+	local hands: { [string]: ParticleEmitter? } = { R = pixFx("rhand", 60, 7), L = pixFx("lhand", 60, 7) }
+	local feet: { [string]: ParticleEmitter? } = { R = pixFx("rfoot", 85, 5), L = pixFx("lfoot", 85, 5) }
+	local headFx = pixFx("head", 180, 5)
+	local handAtt: { [string]: Attachment? } = { R = Core.tip(c, "rhand"), L = Core.tip(c, "lhand") }
+	local floorAtt = Core.att(c, nil, CF(0, c.groundY + 0.12, 0))
+	local floorShock = Core.emit(floorAtt, {
+		tex = T.shock,
+		color = cs(WHITE, c.c1),
+		size = ns(1, 14),
+		transp = ns(0.1, 1),
+		rate = 0,
+		life = nr(0.5, 0.5),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
+	local floorPix = Core.emit(floorAtt, {
+		tex = T.square,
+		color = cs(c.c1, WHITE),
+		size = ns(0.4, 0.1),
+		rate = 0,
+		life = nr(0.5, 1),
+		speed = nr(8, 14),
+		spread = V2(70, 70),
+		accel = V(0, -35, 0),
+		rot = nr(0, 0),
+	})
 	local light = B.rootLight(c, c.c1, 2.8, 18)
-	local lastPct = -1
-	Core.on(c, function(t, _, root)
-		local flash = (t % 5) < 0.12
-		local pct = math.floor((t * 7) % 101)
-		if pct ~= lastPct then
-			lastPct = pct
-			local s = pct .. "% complete"
+
+	-- sync state --------------------------------------------------------------------------
+	local now = 0
+	local lastRoot = CFrame.identity
+	local orbit = 0 -- accumulated panel orbit angle (frozen / rewound by the body)
+	local flicker = 0 -- panel flicker until (t)
+	local function frozen(): boolean
+		local sc, sr = Sync.since(bus, "crash"), Sync.since(bus, "restart")
+		local ss, su = Sync.since(bus, "stall"), Sync.since(bus, "unfreeze")
+		return (sc < sr and sc < 1.8) or (ss < su and ss < 1.3)
+	end
+	local function off(): boolean
+		local sr = Sync.since(bus, "restart")
+		return sr < Sync.since(bus, "boot") and sr < 0.85
+	end
+	local function scatter()
+		for _, q in pixels do
+			q.nextT = 0
+		end
+	end
+	local function openPop(cf: CFrame, life: number, delay: number?)
+		-- the popup with the oldest start gets reused
+		local best: Pop? = nil
+		for _, p in pops do
+			if not best or p.t0 < best.t0 then
+				best = p
+			end
+		end
+		if best then
+			best.t0 = now + (delay or 0)
+			best.life = life
+			best.cf = cf
+		end
+	end
+	local function popAround(delay: number)
+		local a = rng:NextNumber() * TAU
+		openPop(
+			outward(a, 3 + rng:NextNumber() * 1.6, c.chestY - 0.2 + rng:NextNumber() * 2.4)
+				* ANG(0, 0, (rng:NextNumber() - 0.5) * 0.3),
+			1.3 + rng:NextNumber() * 0.6,
+			delay
+		)
+	end
+	local poweredOff = false
+	local function setPower(on: boolean)
+		if poweredOff == not on then
+			return
+		end
+		poweredOff = not on
+		for _, g in guis do
+			g.Enabled = on
+		end
+		for e, r in idleRates do
+			e.Rate = if on then r else 0
+		end
+		for _, p in panels do
+			p.body.Color = if on then c.c1 else Color3.fromRGB(6, 8, 14)
+			p.bar.Transparency = if on then 0 else 1
+		end
+		monitor.Color = if on then c.c1 else Color3.fromRGB(6, 8, 14)
+		monFrame.Transparency = if on then 0 else 0.85
+	end
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("key", function(side)
+		local e = hands[if side == "L" then "L" else "R"]
+		if e then
+			e:Emit(5)
+		end
+	end)
+	on("enter", function()
+		-- right in front of the player, facing the camera side of the character
+		openPop(outward(-math.pi / 2, 2.6, c.chestY + 0.9), 1.4)
+		local e = hands.R
+		if e then
+			e:Emit(10)
+		end
+	end)
+	on("lag", function()
+		orbit -= 0.22 -- rewind
+		scatter()
+	end)
+	on("crash", function()
+		for i = 1, 4 do
+			popAround((i - 1) * 0.06)
+		end
+		chestBurst:Emit(30)
+		floorShock:Emit(1)
+	end)
+	on("glitch", function()
+		scatter()
+		chestBurst:Emit(14)
+		flicker = now + 0.12
+	end)
+	on("boot", function()
+		chestBurst:Emit(24)
+		floorPix:Emit(18)
+		scatter()
+	end)
+	on("scratch", function()
+		if headFx then
+			headFx:Emit(12)
+		end
+	end)
+	on("shrug", function()
+		for side, att in handAtt do
+			if att then
+				local lp = lastRoot:PointToObjectSpace(att.WorldPosition)
+				local a = math.atan2(lp.Z, lp.X)
+				local r = math.max(1.6, math.sqrt(lp.X * lp.X + lp.Z * lp.Z) + 0.9)
+				openPop(outward(a, r, lp.Y + 0.9) * ANG(0, 0, if side == "R" then -0.12 else 0.12), 1.5)
+			end
+			local e = hands[side]
+			if e then
+				e:Emit(10)
+			end
+		end
+	end)
+	on("step", function(side)
+		local e = feet[if side == "L" then "L" else "R"]
+		if e then
+			e:Emit(4)
+		end
+	end)
+	on("stall", function()
+		for i = 1, 3 do
+			popAround((i - 1) * 0.05)
+		end
+		chestBurst:Emit(20)
+	end)
+	on("unfreeze", function()
+		chestBurst:Emit(10)
+		floorPix:Emit(10)
+	end)
+	on("impact", function()
+		floorShock:Emit(1)
+		floorPix:Emit(22)
+	end)
+	local nextFreeze = Sync.age(bus) + 6 + rng:NextNumber() * 4
+
+	local lastPct = ""
+	Core.on(c, function(t, dt, root)
+		now = t
+		lastRoot = root
+		-- walking long enough -> the PC hangs mid-stride (the body's "frozen" reaction)
+		local age = Sync.age(bus)
+		if Sync.get(bus, "move") > 0.6 and Sync.get(bus, "air") < 0.5 then
+			if age >= nextFreeze then
+				nextFreeze = age + 6 + rng:NextNumber() * 4
+				Sync.emit(bus, "freeze")
+			end
+		elseif age > nextFreeze - 2 then
+			nextFreeze = age + 2 + rng:NextNumber() * 2
+		end
+		local isFrozen, isOff = frozen(), off()
+		setPower(not isOff)
+		if not isFrozen and not isOff then
+			orbit += dt * 0.35
+		end
+		-- "% complete": races to 100 during a crash freeze, counts slowly otherwise
+		local pctN
+		local sc = Sync.since(bus, "crash")
+		if isFrozen and sc < 1.8 then
+			pctN = math.min(100, math.floor(sc / 1.5 * 100))
+		else
+			local sb = Sync.since(bus, "boot")
+			pctN = math.floor(((if sb < math.huge then sb else t) * 7) % 101)
+		end
+		local s = pctN .. "% complete"
+		if s ~= lastPct then
+			lastPct = s
 			for _, l in pcts do
 				l.Text = s
 			end
 		end
+		-- kick outward on the crash / stall, hitch on lag
+		local kick = math.max(Sync.env(bus, "crash", 5), Sync.env(bus, "stall", 6)) * 1.3
+		local bob = if isFrozen or isOff then 0 else 1
+		local flick = t < flicker
 		for i, p in panels do
-			local a = (i - 1) / 6 * TAU + t * 0.35
+			local a = (i - 1) / 6 * TAU + orbit
 			local cf = root
-				* outward(a, 5.2, c.chestY + 0.4 + math.sin(t * 1.2 + i) * 0.3 + (if flash then 0.15 else 0))
+				* outward(a, 5.2 + kick, c.chestY + 0.4 + math.sin(t * 1.2 + i) * 0.3 * bob)
+				* (if isFrozen and not isOff then CF(rng:NextNumber() * 0.04, 0, 0) else CFrame.identity)
 			Core.put(p.body, cf)
 			Core.put(p.bar, cf * CF(0, 0.84, 0))
+			p.body.Transparency = if flick and i % 2 == 0 then 1 else 0
 		end
-		local mcf = root * CF(0, c.topY + 2.4 + math.sin(t * 0.8) * 0.15, 2.4) * ANG(0, math.pi, 0) * ANG(-0.15, 0, 0)
+		local mcf = root
+			* CF(0, c.topY + 2.4 + math.sin(t * 0.8) * 0.15 * bob, 2.4 + kick * 0.3)
+			* ANG(0, math.pi, 0)
+			* ANG(-0.15, 0, 0)
 		Core.put(monitor, mcf)
 		Core.put(monFrame, mcf * CF(0, 0, 0.02))
 		for _, p in pops do
-			local age = t - p.t0
-			if age > p.life + 0.3 then
-				p.t0 = t
+			local pa = t - p.t0
+			if pa > p.life + 0.3 and not isOff then
+				p.t0 = t + rng:NextNumber() * 0.6
 				p.life = 1.2 + rng:NextNumber()
-				age = 0
+				pa = p.t0 - t -- negative: waiting
 				local a = rng:NextNumber() * TAU
 				local r = 3 + rng:NextNumber() * 1.6
 				p.cf = outward(a, r, c.chestY - 0.2 + rng:NextNumber() * 2.4)
 					* ANG(0, 0, (rng:NextNumber() - 0.5) * 0.3)
 			end
-			local s
-			if age < 0 or age > p.life then
-				s = 0.05
-			elseif age < 0.12 then
-				s = 0.2 + age / 0.12 * 0.9
-			elseif age < 0.2 then
-				s = 1.1 - (age - 0.12) / 0.08 * 0.1
+			local sz
+			if isOff or pa < 0 or pa > p.life then
+				sz = 0.05
+			elseif pa < 0.12 then
+				sz = 0.2 + pa / 0.12 * 0.9
+			elseif pa < 0.2 then
+				sz = 1.1 - (pa - 0.12) / 0.08 * 0.1
 			else
-				s = 1
+				sz = 1
 			end
-			local hidden = s < 0.1
-			p.win.Size = V(PW * s, PH * s, 0.05)
-			p.title.Size = V(PW * s, 0.22 * s, 0.06)
+			local hidden = sz < 0.1
+			p.win.Size = V(PW * sz, PH * sz, 0.05)
+			p.title.Size = V(PW * sz, 0.22 * sz, 0.06)
 			p.win.Transparency = if hidden then 1 else 0
 			p.title.Transparency = if hidden then 1 else 0
 			p.x.Transparency = if hidden then 1 else 0
 			local cf = root * p.cf
 			Core.put(p.win, cf)
-			Core.put(p.title, cf * CF(0, (PH / 2 + 0.11) * s, 0))
-			Core.put(p.x, cf * CF((PW / 2 - 0.12) * s, (PH / 2 + 0.11) * s, -0.03))
+			Core.put(p.title, cf * CF(0, (PH / 2 + 0.11) * sz, 0))
+			Core.put(p.x, cf * CF((PW / 2 - 0.12) * sz, (PH / 2 + 0.11) * sz, -0.03))
 		end
 		local scf = CFrame.lookAt((root * CF(0, c.topY + 1.2, 0)).Position, camPos())
 		for i, d in spinner do
-			local a = (i - 1) * 0.4 - t * 5
+			local a = (i - 1) * 0.4 - (if isFrozen then 0 else t * 5)
 			Core.put(d, scf * CF(math.cos(a) * 0.55, math.sin(a) * 0.55, 0))
-			d.Transparency = (i - 1) / 9
+			d.Transparency = if isOff then 1 else (i - 1) / 9
 		end
 		for _, q in pixels do
-			if t >= q.nextT then
+			if t >= q.nextT and not isFrozen then
 				q.nextT = t + 0.08 + rng:NextNumber() * 0.2
 				local a = rng:NextNumber() * TAU
 				local r = 2 + rng:NextNumber() * 4.5
 				q.cf = CF(math.cos(a) * r, c.groundY + 0.5 + rng:NextNumber() * 5, math.sin(a) * r)
-				local s = 0.15 + rng:NextNumber() * 0.5
-				q.p.Size = V(s * (1 + rng:NextNumber() * 2), s, s)
+				local ps = 0.15 + rng:NextNumber() * 0.5
+				q.p.Size = V(ps * (1 + rng:NextNumber() * 2), ps, ps)
 				q.p.Transparency = if rng:NextNumber() < 0.25 then 1 else 0
+			end
+			if isOff then
+				q.p.Transparency = 1
+				q.nextT = 0
 			end
 			Core.put(q.p, root * q.cf)
 		end
-		light.Brightness = if flash then 7 else 2.4 + Core.pulse(t, 1.5) * 0.8
+		-- light: blue-screen flash on crash / stall, white boot flash, soft shrug flash, dark when off
+		if isOff then
+			light.Brightness = 0.25
+			light.Color = c.c1
+		else
+			local fl = math.max(
+				Sync.env(bus, "crash", 4) * 7,
+				Sync.env(bus, "stall", 5) * 6,
+				Sync.env(bus, "glitch", 12) * 5,
+				Sync.env(bus, "shrug", 4) * 3.5,
+				Sync.env(bus, "impact", 7) * 4,
+				Sync.env(bus, "enter", 8) * 2.5
+			)
+			local boot = Sync.env(bus, "boot", 4)
+			light.Brightness = math.max(2.4 + Core.pulse(t, 1.5) * 0.8, fl, boot * 7)
+			light.Color = c.c1:Lerp(WHITE, boot)
+		end
 	end)
 end
 
 ---------------------------------------------------------------- CORRUPTED
 
 -- black-red tearing shards, ground cracks, inverted ghosts
--- parts ~88, emitters 5
+-- parts ~88, emitters 15
+-- Synced to the Blender animation (tools/blender/anim/auras/Corruption.py, grounded broken-doll
+-- set, idle 6.0 s). The damaged save file tears around the body exactly when the body breaks:
+--   "snap" head/rarm/larm  CONST limb snap   -> square burst from that limb, the 4 shards nearest
+--                                             to it tear outward, red light flick, title glitches
+--   "rollback"   the pose jumps back/forward  -> every shard jumps back along its orbit in step
+--                                             with the pose, halo flickers, crack glow drops,
+--                                             title "LOADING BACKUP..."
+--   "stomp" R    the huge right-foot stomp    -> cracks flash and a glow wave runs out of them,
+--                                             floor shockwave + red debris + smoke, EVERY shard
+--                                             tears, big light flash, sparks from the foot
+--                (walk "stomp" R = the limp's heavy step: a smaller crack pulse + shock + sparks;
+--                 "stomp" "land" from the landing reaction = the full version)
+--   "rip" rhand  the claw rips down           -> a red tear streak stays in the air along the hand's
+--                                             path, fire sparks + black squares spray from the
+--                                             hand, shards tear
+--   "twitch" head/body                       -> title corrupts, small square burst from head/chest
+--   walk "glitch" L  the dragged leg twitches -> square burst at the left foot, title glitch
+--   "step" (free)                            -> dark smoke puff at that foot
+-- And the other way round: every 4-7 s the VFX fires "tear" (a big shard rips loose and flies
+-- out); the body's "wrench" reaction (CONST spine spasms) answers with "wrench" -> chest burst.
 A.Corruption = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	local blood = Color3.fromRGB(120, 0, 10)
 	type Shard = {
 		slab: BasePart,
@@ -1578,7 +3616,10 @@ A.Corruption = function(c: Ctx)
 		w: number,
 		rot: CFrame,
 		tear: number,
+		tamp: number,
+		tdur: number,
 		tdir: CFrame,
+		pos: Vector3,
 	}
 	local shards: { Shard } = {}
 	for i = 1, 22 do
@@ -1593,8 +3634,18 @@ A.Corruption = function(c: Ctx)
 			w = (0.25 + rng:NextNumber() * 0.4) * (if i % 2 == 0 then 1 else -1),
 			rot = ANG(rng:NextNumber() * TAU, rng:NextNumber() * TAU, rng:NextNumber() * TAU),
 			tear = -10,
+			tamp = 1.4,
+			tdur = 0.45,
 			tdir = CFrame.identity,
+			pos = Vector3.zero,
 		}
+	end
+	local now = 0
+	local function tearShard(s: Shard, amp: number, dur: number)
+		s.tear = now
+		s.tamp = amp
+		s.tdur = dur
+		s.tdir = ANG((rng:NextNumber() - 0.5) * 2 * (amp / 1.4), (rng:NextNumber() - 0.5) * 2, 0)
 	end
 	local g = c.groundY
 	local disc = Core.part(c, V(0.04, 13, 13), Color3.fromRGB(8, 0, 3), SMOOTH, 0.15, CYL)
@@ -1622,7 +3673,7 @@ A.Corruption = function(c: Ctx)
 		end,
 	})
 	B.clones(c, { set = "lite", color = BLACK, mat = NEON, tr = 0.35, delay = 0.2, fps = 10 })
-	-- corrupted block halo, glitch-jumping
+	-- corrupted block halo, glitch-jumping (strobes while the save rolls back)
 	B.ring(c, {
 		n = 18,
 		radius = 8.2,
@@ -1634,6 +3685,11 @@ A.Corruption = function(c: Ctx)
 			return CF(0, c.chestY + 1.2, 0) * ANG(math.sin(t * 0.3) * 0.18, 0, math.cos(t * 0.27) * 0.18)
 		end,
 		paint = function(k, t, p)
+			if Sync.window(bus, "rollback", 0.3) >= 0 then
+				p.Transparency = if (k + math.floor(t * 30)) % 2 == 0 then 1 else 0
+				p.Size = V(0.5, 0.5, 0.5)
+				return
+			end
 			local n = math.noise(k * 0.37, t * 2.5)
 			p.Transparency = if n > 0.3 then 1 else 0
 			p.Size = if n < -0.35 then V(0.9, 0.25, 0.9) else V(0.5, 0.5, 0.5)
@@ -1701,37 +3757,298 @@ A.Corruption = function(c: Ctx)
 		life = nr(0.6, 1),
 		locked = true,
 	})
+	-- burst emitters (rate 0), fired by the animation's markers --------------------------
+	local floorAtt = Core.att(c, nil, CF(0, g + 0.12, 0))
+	local floorShock = Core.emit(floorAtt, {
+		tex = T.shock,
+		color = cs(c.c1, blood),
+		size = ns(1, 22),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(0.65, 0.65),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
+	local floorDebris = Core.emit(floorAtt, {
+		tex = T.square,
+		color = cs(c.c1, BLACK),
+		size = ns(0.5, 0.12),
+		rate = 0,
+		life = nr(0.6, 1.1),
+		speed = nr(10, 20),
+		spread = V2(70, 70),
+		accel = V(0, -40, 0),
+		rot = nr(0, 0),
+		light = 0.5,
+	})
+	local floorSmoke = Core.emit(floorAtt, {
+		tex = T.smoke,
+		color = cs(BLACK, Color3.fromRGB(50, 0, 10)),
+		size = ns(2, 6),
+		transp = ns(0.35, 1),
+		rate = 0,
+		life = nr(1, 1.6),
+		speed = nr(6, 10),
+		spread = V2(85, 85),
+		drag = 3,
+		light = 0,
+		rotSpeed = nr(-60, 60),
+	})
+	type Tip = { att: Attachment, sq: ParticleEmitter, sp: ParticleEmitter }
+	local function tipFx(which: string, spread: number): Tip?
+		local att = Core.tip(c, which)
+		if not att then
+			return nil
+		end
+		return {
+			att = att,
+			sq = Core.emit(att, {
+				tex = T.square,
+				color = cs(c.c1, BLACK),
+				size = ns(0.42, 0.08),
+				rate = 0,
+				life = nr(0.25, 0.55),
+				speed = nr(7, 13),
+				spread = V2(180, 180),
+				drag = 3,
+				rot = nr(0, 0),
+				light = 0.6,
+			}),
+			sp = Core.emit(att, {
+				tex = T.fireSpark,
+				color = cs(WHITE, c.c1, blood),
+				size = ns(0.4, 0),
+				rate = 0,
+				life = nr(0.3, 0.7),
+				speed = nr(10, 20),
+				spread = V2(spread, spread),
+				dir = Enum.NormalId.Bottom,
+				accel = V(0, -18, 0),
+				drag = 2,
+				bright = 4,
+			}),
+		}
+	end
+	local tips: { [string]: Tip? } = {
+		head = tipFx("head", 180),
+		rarm = tipFx("rhand", 50),
+		larm = tipFx("lhand", 50),
+		rhand = nil,
+		chest = tipFx("chest", 180),
+		R = tipFx("rfoot", 80),
+		L = tipFx("lfoot", 80),
+	}
+	tips.rhand = tips.rarm
+	tips.body = tips.chest
+	local function footSmoke(which: string): ParticleEmitter?
+		local att = Core.tip(c, which)
+		return if att
+			then Core.emit(att, {
+				tex = T.smoke,
+				color = cs(BLACK, Color3.fromRGB(40, 0, 8)),
+				size = ns(1, 2.6),
+				transp = ns(0.4, 1),
+				rate = 0,
+				life = nr(0.6, 1),
+				speed = nr(1.5, 3),
+				spread = V2(80, 80),
+				dir = Enum.NormalId.Bottom,
+				light = 0,
+				rotSpeed = nr(-40, 40),
+			})
+			else nil
+	end
+	local puffs: { [string]: ParticleEmitter? } = { R = footSmoke("rfoot"), L = footSmoke("lfoot") }
+	-- the claw's tear streak: a trail along the right arm, enabled for the rip
+	local ripTrail: Trail? = nil
+	do
+		local a0, a1 = Core.tip(c, "rhand", CF(0, 0.9, 0)), Core.tip(c, "rhand", CF(0, -0.05, 0))
+		if a0 and a1 then
+			local tr = Instance.new("Trail")
+			tr.Attachment0 = a0
+			tr.Attachment1 = a1
+			tr.Color = ColorSequence.new(WHITE, c.c1)
+			tr.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.4, 0.15),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			tr.Lifetime = 0.75
+			tr.LightEmission = 1
+			tr.LightInfluence = 0
+			tr.MinLength = 0.05
+			tr.Enabled = false
+			tr.Parent = a0
+			ripTrail = tr
+		end
+	end
 	local light = B.rootLight(c, c.c1, 3, 20)
+
+	-- sync ---------------------------------------------------------------------------------
+	local lastRoot = CFrame.identity
+	local stompK, stompAt = 0, -10 -- strength (0..1) and time of the last stomp
+	local function nearest(att: Attachment?, n: number)
+		if not att then
+			return
+		end
+		local lp = lastRoot:PointToObjectSpace(att.WorldPosition)
+		local list = table.clone(shards)
+		table.sort(list, function(x, y)
+			return (x.pos - lp).Magnitude < (y.pos - lp).Magnitude
+		end)
+		for i = 1, math.min(n, #list) do
+			tearShard(list[i], 2.2, 0.55)
+		end
+	end
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("snap", function(which)
+		local tp = tips[tostring(which)]
+		if tp then
+			tp.sq:Emit(20)
+			tp.sp:Emit(8)
+			nearest(tp.att, 4)
+		end
+	end)
+	local function stomp(k: number, foot: string?)
+		stompK, stompAt = k, now
+		floorShock:Emit(if k > 0.7 then 2 else 1)
+		floorDebris:Emit(math.floor(36 * k))
+		floorSmoke:Emit(math.floor(12 * k))
+		for _, s in shards do
+			if k > 0.7 or rng:NextNumber() < 0.3 then
+				tearShard(s, 1.4 + 1.6 * k, 0.4 + 0.25 * k)
+			end
+		end
+		local which: { string } = if foot then { foot } else { "R", "L" }
+		for _, f in which do
+			local tp = tips[f]
+			if tp then
+				tp.sp:Emit(math.floor(22 * k))
+				tp.sq:Emit(math.floor(10 * k))
+			end
+		end
+	end
+	on("stomp", function(arg)
+		if arg == "land" then
+			stomp(1, nil)
+		elseif Sync.get(bus, "move") > 0.5 then
+			stomp(0.4, "R") -- the limp's heavy right step
+		else
+			stomp(1, "R")
+		end
+	end)
+	on("rip", function()
+		local tp = tips.rhand
+		if tp then
+			tp.sp:Emit(30)
+			tp.sq:Emit(24)
+			nearest(tp.att, 6)
+		end
+	end)
+	on("twitch", function(which)
+		local tp = tips[if which == "body" then "chest" else "head"]
+		if tp then
+			tp.sq:Emit(12)
+		end
+	end)
+	on("glitch", function(side)
+		local tp = tips[if side == "R" then "R" else "L"]
+		if tp then
+			tp.sq:Emit(16)
+			tp.sp:Emit(6)
+		end
+	end)
+	on("step", function(side)
+		local e = puffs[if side == "L" then "L" else "R"]
+		if e then
+			e:Emit(3)
+		end
+	end)
+	on("wrench", function()
+		local tp = tips.chest
+		if tp then
+			tp.sq:Emit(26)
+			tp.sp:Emit(12)
+		end
+	end)
+	local nextTear = Sync.age(bus) + 4 + rng:NextNumber() * 3
+
 	Core.on(c, function(t, _, root)
+		now = t
+		lastRoot = root
+		local age = Sync.age(bus)
+		if age >= nextTear then
+			nextTear = age + 4 + rng:NextNumber() * 3
+			tearShard(shards[rng:NextInteger(1, #shards)], 6, 1.1) -- a big shard rips loose
+			Sync.emit(bus, "tear")
+		end
+		if ripTrail then
+			ripTrail.Enabled = Sync.window(bus, "rip", 0.22) >= 0
+		end
 		Core.put(disc, root * CF(0, g + 0.02, 0) * FLAT)
+		-- cracks: the slow glow crawl, a flash + outward glow wave on each stomp, dim on rollback
+		local rolling = Sync.window(bus, "rollback", 0.3) >= 0
+		local base = if rolling then 0.85 else 0.4
+		local sAge = t - stompAt
+		local sFlash = if sAge < 1.5 then math.exp(-sAge * 3) * stompK else 0
 		for _, ck in cracks do
 			for j, bm in ck.beams do
 				local w = ((t * 0.8 + ck.off) % 1) * 7 - j
-				bm.Transparency = NumberSequence.new(math.clamp(0.4 - math.exp(-w * w) * 0.4, 0, 1))
+				local ws = sAge * 16 - j
+				local wave = if sAge < 1.5 then math.exp(-ws * ws * 0.5) * stompK else 0
+				bm.Transparency =
+					NumberSequence.new(math.clamp(base - math.exp(-w * w) * 0.4 - sFlash * 0.35 - wave * 0.4, 0, 1))
 			end
 		end
+		-- shards: orbit + tears; the rollback jumps them back along the orbit in CONST steps
+		local rb = Sync.window(bus, "rollback", 0.27)
+		local back = if rb >= 0 and math.floor(rb * 4) % 2 == 0 then 0.9 else 0
 		for _, s in shards do
-			if rng:NextNumber() < 0.004 then
-				s.tear = t
-				s.tdir = ANG((rng:NextNumber() - 0.5) * 2, (rng:NextNumber() - 0.5) * 2, 0)
+			if rng:NextNumber() < 0.002 then
+				tearShard(s, 1.4, 0.45)
 			end
-			local age = t - s.tear
-			local k = if age < 0.1 then 1 elseif age < 0.45 then 1 - smooth01((age - 0.1) / 0.35) else 0
-			local a = s.a + t * s.w
-			local r = s.r + k * 1.4
-			local cf = root
-				* CF(math.cos(a) * r, s.y + math.sin(t + s.a) * 0.3, math.sin(a) * r)
-				* s.rot
-				* ANG(t * s.w, 0, 0)
+			local sa = t - s.tear
+			local k = if sa < 0.1 then 1 elseif sa < s.tdur then 1 - smooth01((sa - 0.1) / (s.tdur - 0.1)) else 0
+			local a = s.a + t * s.w - back * math.sign(s.w)
+			local r = s.r + k * s.tamp
+			local lp = V(math.cos(a) * r, s.y + math.sin(t + s.a) * 0.3 + k * (s.tamp - 1.4) * 0.3, math.sin(a) * r)
+			s.pos = lp
+			local cf = root * CF(lp) * s.rot * ANG(t * s.w, 0, 0)
 			if k > 0 then
 				cf *= CFrame.identity:Lerp(s.tdir, k)
 			end
 			Core.put(s.slab, cf)
 			Core.put(s.edge, cf * CF(0.01, 0, s.slab.Size.Z / 2))
 		end
-		err.TextTransparency = if rng:NextNumber() < 0.1 then 0.8 else 0
-		err.Text = if rng:NextNumber() < 0.04 then "S@VE F1LE C0RRUPT#D" else "SAVE FILE CORRUPTED"
-		light.Brightness = 2.4 + math.noise(t * 5, 1) * 3
+		-- title: rollback message, corruption bursts on snaps / twitches / glitches
+		local hit = math.max(
+			Sync.window(bus, "snap", 0.25),
+			Sync.window(bus, "twitch", 0.2),
+			Sync.window(bus, "glitch", 0.2),
+			Sync.window(bus, "rip", 0.3)
+		) >= 0
+		if Sync.window(bus, "rollback", 0.6) >= 0 then
+			err.Text = "LOADING BACKUP..."
+			err.TextTransparency = if math.floor(t * 12) % 2 == 0 then 0 else 0.5
+		elseif hit then
+			err.Text = if rng:NextNumber() < 0.5 then "S@VE F1LE C0RRUPT#D" else "5AV3 ##LE CORR\\/PTED"
+			err.TextTransparency = if rng:NextNumber() < 0.35 then 0.8 else 0
+		else
+			err.TextTransparency = if rng:NextNumber() < 0.1 then 0.8 else 0
+			err.Text = if rng:NextNumber() < 0.04 then "S@VE F1LE C0RRUPT#D" else "SAVE FILE CORRUPTED"
+		end
+		-- light: stomp flash, snap / rip flicks, a drop while rolling back
+		local fl = math.max(
+			sFlash * 10,
+			Sync.env(bus, "snap", 10) * 6,
+			Sync.env(bus, "rip", 6) * 7,
+			Sync.env(bus, "wrench", 8) * 5,
+			Sync.env(bus, "twitch", 14) * 4
+		)
+		light.Brightness = if rolling then 0.6 else math.max(2.4 + math.noise(t * 5, 1) * 3, fl)
 	end)
 end
 

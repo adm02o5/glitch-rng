@@ -85,7 +85,7 @@ def P(base, **over):
 def hunch(lean, sink=0.0, **over):
     """Torso leaned forward by `lean` deg; the hips counter-rotate so the legs stay vertical."""
     d = dict(root=(-lean, 0, 0), root_pos=(0, -sink, 0.04 * lean / 12), neck=(lean * 0.8, 0, 0),
-             rs=(30, 0, -4), ls=(30, 0, 4), rh=(lean, 0, 3), lh=(lean, 0, -3))
+             rs=(40, 22, -6), ls=(40, -22, 6), rh=(lean, 0, 3), lh=(lean, 0, -3))
     d.update(over)
     return d
 
@@ -109,13 +109,13 @@ K(37, P(GL, root=(-13, 10, 2), neck=(8, 30, 4), rh=(14, -4, 3), lh=(14, -4, -3))
 GR = hunch(15, neck=(10, -58, -6), root=(-15, -6, -2), rh=(15, 6, 3), lh=(15, 6, -3))
 K(40, GR, ease="EXPO")
 idle.marker(40, "glance", "R")
-K(44, P(GR, root=(-15, -16, -3), neck=(9, -52, -4), rs=(26, 0, -2), ls=(34, 0, 8),
+K(44, P(GR, root=(-15, -16, -3), neck=(9, -52, -4), rs=(36, 20, -4), ls=(44, -16, 10),
         rh=(15, 16, 3), lh=(15, 16, -3)))
 K(50, P(GR, root=(-15, -15, -3), neck=(8, -50, -8), rh=(15, 15, 3), lh=(15, 15, -3)))
 # back to centre, suspicious tilt
 K(56, hunch(14, neck=(13, 4, 9)))
 # the right hand slips out to an invisible terminal, head down to it
-TERM = hunch(16, 0.02, neck=(-2, 8, 4), root=(-16, 6, 0), rs=(66, 0, -12), ls=(30, 0, 4),
+TERM = hunch(16, 0.02, neck=(-2, 8, 4), root=(-16, 6, 0), rs=(66, 0, -12), ls=(40, -22, 6),
              rh=(16, -6, 3), lh=(16, -6, -3))
 K(64, P(TERM, rs=(54, 0, -4)))
 K(68, TERM, ease="OUT")
@@ -126,8 +126,8 @@ for k, f in enumerate((70, 76, 82)):
     K(f + 1, P(down, neck=(-9, 8 - 3 * k, 5)))
     K(f + 3, P(TERM, rs=(68, 0, -12 - 2 * k), neck=(-3, 7 - 3 * k, 4)))
 # coil: the hand pulls back in, the body sinks
-COIL = hunch(24, 0.18, neck=(18, 0, 0), rs=(26, 0, -2), ls=(26, 0, 2))
-K(88, P(COIL, rs=(34, 0, -6)), ease="IN")
+COIL = hunch(24, 0.18, neck=(18, 0, 0), rs=(34, 26, -4), ls=(34, -26, 4))
+K(88, P(COIL, rs=(44, 14, -8)), ease="IN")
 K(92, COIL, ease="IN")
 # SPREAD: arms out low and wide like spider legs, chin up
 SPREAD = hunch(20, 0.14, neck=(22, 0, 0), rs=(28, 0, 74), ls=(28, 0, -74),
@@ -141,8 +141,8 @@ K(105, P(SPREAD, rs=(22, 0, 80), ls=(18, 0, -80), neck=(21, 3, 0)), ease="CONST"
 K(108, P(SPREAD, rs=(30, 0, 70), ls=(34, 0, -68), neck=(20, 0, 0)), ease="CONST")
 K(110, P(SPREAD, rs=(30, 0, 70), ls=(34, 0, -68), neck=(20, 0, 0)))
 # tuck back in, rise with an overshoot
-K(120, hunch(18, 0.06, neck=(10, -4, -2), rs=(34, 0, -6), ls=(32, 0, 6)), ease="IN")
-K(128, hunch(11, 0, neck=(6, -2, -2), rs=(28, 0, -3), ls=(28, 0, 3)), ease="BACK")
+K(120, hunch(18, 0.06, neck=(10, -4, -2), rs=(44, 20, -6), ls=(42, -20, 6)), ease="IN")
+K(128, hunch(11, 0, neck=(6, -2, -2), rs=(38, 22, -5), ls=(38, -22, 5)), ease="BACK")
 K(136, hunch(15, 0.01, neck=(11, 0, 1)))
 idle.loop()
 wobble(idle, "root", 1, 0.012, 3, 0.0, loc=True)  # breathing under the hood
@@ -157,13 +157,13 @@ LEAN = 18
 
 def sneak_contact(s):
     return hunch(LEAN, 0.06, root=(-LEAN, -6 * s, -2 * s), neck=(14, 14 * s, 4 * s),
-                 rs=(32, 0, -4), ls=(32, 0, 4),
+                 rs=(42, 22, -6), ls=(42, -22, 6),
                  rh=(LEAN + 18 * s, 0, 3), lh=(LEAN - 18 * s, 0, -3))
 
 
 def sneak_pass(s):
     return hunch(LEAN + 2, 0.0, root=(-LEAN - 2, 0, 1.5 * s), neck=(16, 4 * s, 1 * s),
-                 rs=(28, 0, -4), ls=(28, 0, 4),
+                 rs=(38, 20, -6), ls=(38, -20, 6),
                  rh=(LEAN - 2 * s, 0, 3), lh=(LEAN + 2 * s, 0, -3))
 
 
