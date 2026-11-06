@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 
 local Core = require(script.Parent.Core)
 local B = require(script.Parent.Blocks)
+local Sync = require(script.Parent.Sync)
 
 type Ctx = Core.Ctx
 
@@ -1995,18 +1996,126 @@ A.Deepfake = function(c: Ctx)
 	local swapUntil = 0
 	local nextSwap = 0
 	local pct = 97.3
+
+	-- Synced to the Blender animation (tools/blender/anim/auras/Deepfake.py). The 5.0 s idle IS
+	-- the peel cycle (Sync.phase on the bus clock): the mask leaves the face on "peel" (f8), the
+	-- body turns to stare at it, the head glitches between mirrored identities ("swap" f56/f62),
+	-- the hand feels the bare face ("touch" f88), grabs the mask ("grab" f112; it then rides the
+	-- right hand) and slaps it back on ("lock" f132). Walk: "flick" = a mirrored-head flicker.
+	-- The VFX answers back: a random tracker MISMATCH emits "mismatch" -> the doubletake clip.
+	local IDLE = 5.0
+	local PEEL0, GRAB0, LOCK0 = 8 / 150, 112 / 150, 132 / 150
+	local handTip = Core.tip(c, "rhand")
+	local feet: { [string]: Attachment? } = { R = Core.tip(c, "rfoot"), L = Core.tip(c, "lfoot") }
+	local squareBurst: Core.EmitSpec = {
+		tex = T.square,
+		color = cs(skin, cyan),
+		size = ns(0.2, 0),
+		transp = ns(0, 1),
+		rate = 0,
+		life = nr(0.35, 0.8),
+		speed = nr(2.5, 6),
+		drag = 4,
+		spread = V2(180, 180),
+		rot = nr(0, 0),
+		bright = 2.5,
+	}
+	local headBurst = Core.emit(ha, squareBurst)
+	local handBurst = handTip and Core.emit(handTip, squareBurst)
+	local handSpark = handTip
+		and Core.emit(handTip, {
+			tex = T.spark,
+			color = cs(WHITE, cyan),
+			size = ns(0, 0.35, 0),
+			rate = 0,
+			life = nr(0.2, 0.4),
+			speed = nr(3, 6),
+			drag = 5,
+			spread = V2(180, 180),
+			bright = 3,
+		})
+	local footFx: { [string]: ParticleEmitter } = {}
+	for side, a in feet do
+		if a then
+			footFx[side] = Core.emit(a, {
+				tex = T.square,
+				color = cs(cyan, skin),
+				size = ns(0.16, 0),
+				transp = ns(0.1, 1),
+				rate = 0,
+				life = nr(0.5, 0.9),
+				speed = nr(0.8, 1.8),
+				spread = V2(70, 70),
+				rot = nr(0, 0),
+			})
+		end
+	end
+	local candFlip = 0 -- candidate masks jump half an orbit on every identity swap
+	local function onEv(name: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(c.bus, name, fn))
+	end
+	onEv("peel", function()
+		headBurst:Emit(16)
+	end)
+	onEv("swap", function()
+		swapUntil = math.max(swapUntil, os.clock() + 0.12)
+		candFlip += math.pi
+		headBurst:Emit(10)
+	end)
+	onEv("flick", function()
+		swapUntil = math.max(swapUntil, os.clock() + 0.08)
+		headBurst:Emit(5)
+	end)
+	onEv("touch", function()
+		if handBurst then
+			handBurst:Emit(24)
+		end
+	end)
+	onEv("grab", function()
+		if handSpark then
+			handSpark:Emit(14)
+		end
+	end)
+	onEv("lock", function()
+		swapUntil = 0
+		pct = 99.9
+		headBurst:Emit(40)
+		if handSpark then
+			handSpark:Emit(20)
+		end
+	end)
+	onEv("step", function(side)
+		local e = footFx[side :: string]
+		if e then
+			e:Emit(5)
+		end
+	end)
+
 	Core.on(c, function(t, _, root)
 		local hcf = c.head.CFrame
-		-- peel cycle: the mask lifts off the face, drifts aside and turns, then snaps back
-		local cyc = (t % 5) / 5
-		local peel = smooth01(cyc / 0.35) * (1 - smooth01((cyc - 0.8) / 0.2))
-		local m1 = hcf * CF(peel * 0.9, peel * 0.55, -peel * 0.6) * ANG(peel * 0.25, peel * 0.9, peel * 0.2)
+		-- peel cycle on the idle clock: lifts off at "peel", floats beside the head (turned to
+		-- stare back at the body), rides the hand from "grab", snaps on at "lock"
+		local cyc = Sync.phase(c.bus, IDLE)
+		local move = Sync.get(c.bus, "move")
+		local peel = if cyc >= LOCK0 then 0 else smooth01((cyc - PEEL0) / 0.22)
+		local headRest = root * CF(0, c.headY, 0)
+		local floatCF = headRest
+			* CF(0.9, 0.55 + math.sin(t * 1.3) * 0.06, -0.6)
+			* ANG(0.25, 0.9 + math.sin(t * 0.8) * 0.08, 0.2)
+		local m1 = hcf:Lerp(floatCF, peel)
+		if handTip and cyc >= GRAB0 and cyc < LOCK0 then
+			local hold = smooth01((cyc - GRAB0) / 0.03) * (1 - move)
+			local face = smooth01((cyc - 0.8) / (LOCK0 - 0.8))
+			local hp = handTip.WorldPosition + root:VectorToWorldSpace(V(0, 0, -0.25))
+			m1 = m1:Lerp(CF(hp) * floatCF.Rotation:Lerp(hcf.Rotation, face), hold)
+		end
+		local lockE = Sync.env(c.bus, "lock", 5)
 		local mcfs = { m1, m1, m1 }
 		Core.put(masks[1].p, m1)
-		masks[1].p.Transparency = 0.15 + (1 - peel) * 0.6
+		masks[1].p.Transparency = math.max(0.05, 0.15 + (1 - peel) * 0.6 - lockE * 0.6)
 		-- candidates orbit the head
 		for k = 2, 3 do
-			local a = t * 0.9 + (k - 2) * math.pi
+			local a = t * 0.9 + (k - 2) * math.pi + candFlip
 			local cf = root
 				* CF(0, c.headY + 0.15 + math.sin(t * 1.4 + k) * 0.12, 0)
 				* ANG(0, -a, 0)
@@ -2023,7 +2132,9 @@ A.Deepfake = function(c: Ctx)
 		end
 		-- brackets + scan line over the real face
 		local face = hcf * CF(0, 0, -hs.Z * 0.62)
-		local bw, bh = hs.X * 0.7, hs.Y * 0.62
+		-- brackets bloom when the mask peels away and punch in onto the face on the slap
+		local bs = 1 + Sync.env(c.bus, "peel", 3) * 0.35 + lockE * 0.6
+		local bw, bh = hs.X * 0.7 * bs, hs.Y * 0.62 * bs
 		local k = 0
 		for sx = -1, 1, 2 do
 			for sy = -1, 1, 2 do
@@ -2035,11 +2146,16 @@ A.Deepfake = function(c: Ctx)
 			end
 		end
 		local sweep = math.sin(t * 2.2)
+		local pw = Sync.window(c.bus, "peel", 0.5)
+		if pw >= 0 then
+			sweep = 1 - 2 * pw -- one fast top-to-bottom scan as the mask leaves
+		end
 		Core.put(scanLine, face * CF(0, sweep * bh, -0.02))
-		-- landmark dots jitter as the tracker re-locks
+		-- landmark dots jitter as the tracker re-locks (scatter when the hand touches the face)
+		local touchE = Sync.env(c.bus, "touch", 3)
 		for i, d in dots do
 			local o = dotOff[i]
-			local j = if t < swapUntil then 0.05 else 0.01
+			local j = (if t < swapUntil then 0.05 else 0.01) + touchE * 0.2
 			Core.put(
 				d,
 				face * CF(o.X * hs.X + (rng:NextNumber() - 0.5) * j, o.Y * hs.Y + (rng:NextNumber() - 0.5) * j, -0.03)
@@ -2059,19 +2175,26 @@ A.Deepfake = function(c: Ctx)
 		if t >= nextSwap then
 			nextSwap = t + 0.25
 			pct = math.clamp(pct + (rng:NextNumber() - 0.5) * 3, 82, 99.9)
-			if rng:NextNumber() < 0.06 then
+			-- the tracker randomly loses the face -> the body does a doubletake (not while the
+			-- hand is busy grabbing / slapping the mask back on)
+			if rng:NextNumber() < 0.03 and t >= swapUntil + 2 and (cyc < GRAB0 - 0.05 or cyc > LOCK0 + 0.08) then
 				swapUntil = t + 0.6
+				Sync.emit(c.bus, "mismatch")
 			end
 		end
-		if t < swapUntil then
+		if lockE > 0.12 then
+			match.Text = "MATCH 100.0%"
+			match.TextColor3 = WHITE
+		elseif t < swapUntil then
 			match.Text = "MISMATCH"
 			match.TextColor3 = Color3.fromRGB(255, 70, 70)
 		else
 			match.Text = string.format("MATCH %.1f%%", pct)
 			match.TextColor3 = cyan
 		end
-		scanLine.Color = if t < swapUntil then Color3.fromRGB(255, 70, 70) else cyan
-		light.Color = skin:Lerp(cyan, Core.pulse(t, 5))
+		scanLine.Color = if t < swapUntil then Color3.fromRGB(255, 70, 70) else cyan:Lerp(WHITE, lockE)
+		light.Color = skin:Lerp(cyan, Core.pulse(t, 5)):Lerp(WHITE, lockE * 0.7)
+		light.Brightness += lockE * 2.5 + Sync.env(c.bus, "touch", 4) * 1
 	end)
 end
 

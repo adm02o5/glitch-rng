@@ -10,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 
 local Core = require(script.Parent.Core)
 local B = require(script.Parent.Blocks)
+local Sync = require(script.Parent.Sync)
 
 type Ctx = Core.Ctx
 
@@ -1735,9 +1736,31 @@ A.Corruption = function(c: Ctx)
 end
 
 -- violent red glitch storm, warning triangles, shaking light
--- parts ~76, emitters 5
+-- parts ~76, emitters 12
+-- Synced to the Blender animation (tools/blender/anim/auras/KernelPanic.py, grounded set, idle
+-- 5.0 s). The body is the crashing machine; the storm answers every move it makes:
+--   "alarm" L/R  head whips to a side   -> both searchlights snap onto that side and sweep it,
+--                                          the triangles on that side flare white, alarm flash
+--   "spasm"      CONST seizure frames    -> every glitch block re-scatters at once, square +
+--                                          spark burst from the chest, the title tears, strobe
+--   "clutch"     hands on the temples    -> the error streams collapse into a tight scrolling
+--                                          ring around the head, sparks from the head
+--   "scream"     arched back, arms flung -> fire-spark sprays from both hands, the triangles are
+--                                          blown outward, the title swells, light surge
+--   "slam"       fists slam down         -> floor shock + smoke burst, two lightning bolts
+--                                          strike right beside the player, big flash
+--   "blackout"   the body goes limp      -> LIGHTS OUT until "reboot": light, title, triangles,
+--                                          searchlights and blocks off, emitters throttled
+--   "reboot"     rigid boot pose         -> white flash, "REBOOTING..." title, blocks burst back
+--   walk "hitch" R/L stumble stutter     -> sparks burst from that foot, blocks re-scatter
+--   "step"  (free) each footfall         -> small red spark puff at that foot
+--   "impact" (landing reaction)          -> floor shock + smoke puff
+-- And the other way round: every 3.5-6.5 s the VFX fires "strike" (a huge bolt hits the ground
+-- next to the player); the body's "jolt" reaction (electrocution) answers with "zap" ->
+-- spark bursts from both hands and the chest + white flash.
 A.KernelPanic = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	local amber = Color3.fromRGB(255, 190, 0)
 	type Blk = { p: BasePart, cf: CFrame, nextT: number }
 	local blocks: { Blk } = {}
@@ -1746,17 +1769,24 @@ A.KernelPanic = function(c: Ctx)
 			{ p = Core.part(c, V(0.3, 0.3, 0.3), if i % 3 == 0 then c.c2 else c.c1), cf = CF(0, -50, 0), nextT = 0 }
 	end
 	local TS = 1.7
-	type Tri = { bars: { BasePart }, att: Attachment, a: number, y: number }
+	type Tri = { bars: { BasePart }, att: Attachment, lbl: TextLabel, a: number, y: number, col: Color3, lit: boolean }
 	local tris: { Tri } = {}
 	for i = 1, 6 do
 		local att, lbl = B.glyph(c, "!", amber, V2(0.9, 0.9), F.tech, nil, BLACK)
 		lbl.TextStrokeTransparency = 0
+		local col = if i % 2 == 0 then amber else c.c1
 		tris[i] = {
-			bars = B.tri(c, TS, 0.15, if i % 2 == 0 then amber else c.c1),
+			bars = B.tri(c, TS, 0.15, col),
 			att = att,
+			lbl = lbl,
 			a = (i - 1) / 6 * TAU,
 			y = c.chestY + (i % 2) * 1.6 - 0.1,
+			col = col,
+			lit = false,
 		}
+	end
+	local function lightsOut(): boolean
+		return Sync.since(bus, "blackout") < Sync.since(bus, "reboot")
 	end
 	for _ = 1, 4 do
 		B.bolt(c, {
@@ -1771,6 +1801,9 @@ A.KernelPanic = function(c: Ctx)
 				local u = rng:NextUnitVector()
 				local r = 5 + rng:NextNumber() * 2.5
 				return V(0, c.chestY, 0), V(u.X * r, c.chestY + 0.5 + u.Y * 3, u.Z * r)
+			end,
+			active = function()
+				return not lightsOut()
 			end,
 		})
 	end
@@ -1790,6 +1823,30 @@ A.KernelPanic = function(c: Ctx)
 				local x, z = math.cos(a) * r, math.sin(a) * r
 				return V(x * 0.4, 40, z * 0.4), V(x, c.groundY + 0.05, z)
 			end,
+			active = function()
+				return not lightsOut()
+			end,
+		})
+	end
+	-- synced strikes: the "strike" event (VFX timer) and the body's "slam" call two fat bolts
+	-- right next to the player; they never flicker while active
+	local strikeAt = { V(2, c.groundY, 0), V(-2, c.groundY, 0) }
+	local function striking(): boolean
+		return Sync.since(bus, "strike") < 0.3 or Sync.since(bus, "slam") < 0.35
+	end
+	for k = 1, 2 do
+		B.bolt(c, {
+			segs = 12,
+			color = WHITE,
+			color2 = c.c1,
+			width = 0.75,
+			jitter = 1.6,
+			interval = 0.05,
+			ends = function()
+				local p = strikeAt[k]
+				return V(p.X * 0.3, 45, p.Z * 0.3), p + V(0, 0.05, 0)
+			end,
+			active = striking,
 		})
 	end
 	local _, title = B.glyph(c, "KERNEL PANIC", c.c1, V2(5.6, 0.85), F.tech, CF(0, c.topY + 2.2, 0), BLACK)
@@ -1816,12 +1873,18 @@ A.KernelPanic = function(c: Ctx)
 	-- rotating alarm searchlights
 	local alarm = Core.att(c, nil, CF(0, c.topY + 1, 0))
 	local spots: { Attachment } = {}
+	local spotBeams: { Beam } = {}
 	for k = 1, 2 do
 		spots[k] = Core.att(c)
-		Core.beam(c, alarm, spots[k], c.c1, 0.3, { w1 = 4, tr = ns(0.4, 0.95), segs = 2 })
+		spotBeams[k] = Core.beam(c, alarm, spots[k], c.c1, 0.3, { w1 = 4, tr = ns(0.4, 0.95), segs = 2 })
 	end
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	local throttled: { { e: ParticleEmitter, rate: number } } = {}
+	local function keep(e: ParticleEmitter): ParticleEmitter
+		table.insert(throttled, { e = e, rate = e.Rate })
+		return e
+	end
+	keep(Core.emit(torso, {
 		tex = T.fireSpark,
 		color = cs(WHITE, c.c1),
 		size = ns(0.4, 0),
@@ -1831,8 +1894,8 @@ A.KernelPanic = function(c: Ctx)
 		spread = V2(180, 180),
 		accel = V(0, -12, 0),
 		bright = 3,
-	})
-	Core.emit(torso, {
+	}))
+	local chestBurst = keep(Core.emit(torso, {
 		tex = T.square,
 		color = cs(WHITE, c.c1),
 		size = ns(0.3, 0.1),
@@ -1841,8 +1904,8 @@ A.KernelPanic = function(c: Ctx)
 		speed = nr(5, 9),
 		spread = V2(180, 180),
 		rot = nr(0, 0),
-	})
-	B.floorEmit(c, 6, {
+	}))
+	local smoke = keep(B.floorEmit(c, 6, {
 		tex = T.smoke,
 		color = cs(c.c1, Color3.fromRGB(60, 0, 0)),
 		size = ns(3, 6),
@@ -1852,9 +1915,9 @@ A.KernelPanic = function(c: Ctx)
 		speed = nr(1.5, 3),
 		light = 0.5,
 		rotSpeed = nr(-60, 60),
-	})
+	}))
 	local storm = Core.volume(c, V(14, 10, 14), CF(0, c.chestY + 2, 0))
-	Core.emit(storm, {
+	keep(Core.emit(storm, {
 		tex = T.square,
 		color = cs(c.c1, WHITE),
 		size = ns(0.35, 0.1),
@@ -1865,8 +1928,8 @@ A.KernelPanic = function(c: Ctx)
 		dir = Enum.NormalId.Bottom,
 		rot = nr(0, 0),
 		shape = BOX,
-	})
-	Core.emit(torso, {
+	}))
+	local glow = keep(Core.emit(torso, {
 		tex = T.glow,
 		color = cs(c.c1),
 		size = ns(5, 7),
@@ -1874,70 +1937,328 @@ A.KernelPanic = function(c: Ctx)
 		rate = 4,
 		life = nr(0.3, 0.5),
 		locked = true,
+	}))
+	-- burst emitters (rate 0, fired by the animation's markers)
+	local chestSpark = Core.emit(Core.tip(c, "chest") or torso, {
+		tex = T.fireSpark,
+		color = cs(WHITE, c.c1),
+		size = ns(0.5, 0),
+		rate = 0,
+		life = nr(0.4, 0.9),
+		speed = nr(14, 24),
+		spread = V2(180, 180),
+		accel = V(0, -18, 0),
+		drag = 2,
+		bright = 4,
 	})
+	local floorAtt = Core.att(c, nil, CF(0, c.groundY + 0.12, 0))
+	local floorShock = Core.emit(floorAtt, {
+		tex = T.shock,
+		color = cs(WHITE, c.c1),
+		size = ns(1, 20),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(0.6, 0.6),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
+	local floorDebris = Core.emit(floorAtt, {
+		tex = T.square,
+		color = cs(c.c1, WHITE),
+		size = ns(0.45, 0.1),
+		rate = 0,
+		life = nr(0.5, 1),
+		speed = nr(10, 18),
+		spread = V2(70, 70),
+		accel = V(0, -40, 0),
+		rot = nr(0, 0),
+	})
+	type Tip = { att: Attachment, fx: ParticleEmitter }
+	local function tipFx(which: string, spread: number): Tip?
+		local att = Core.tip(c, which)
+		if not att then
+			return nil
+		end
+		return {
+			att = att,
+			fx = Core.emit(att, {
+				tex = T.fireSpark,
+				color = cs(WHITE, c.c1),
+				size = ns(0.45, 0),
+				rate = 0,
+				life = nr(0.3, 0.7),
+				speed = nr(10, 20),
+				spread = V2(spread, spread),
+				dir = Enum.NormalId.Bottom, -- out of the fingertips / soles
+				accel = V(0, -16, 0),
+				drag = 2,
+				bright = 4,
+			}),
+		}
+	end
+	local hands: { [string]: Tip? } = { R = tipFx("rhand", 40), L = tipFx("lhand", 40) }
+	local feet: { [string]: Tip? } = { R = tipFx("rfoot", 80), L = tipFx("lfoot", 80) }
+	local headTip = Core.tip(c, "head")
+	local headFx = if headTip
+		then Core.emit(headTip, {
+			tex = T.square,
+			color = cs(WHITE, c.c1),
+			size = ns(0.3, 0.05),
+			rate = 0,
+			life = nr(0.3, 0.6),
+			speed = nr(4, 8),
+			spread = V2(180, 180),
+			rot = nr(0, 0),
+		})
+		else nil
 	local shakeAtt = Core.att(c, c.torso)
 	local shake = Core.light(shakeAtt, c.c1, 3, 22)
+
+	local function scatter()
+		for _, b in blocks do
+			b.nextT = 0
+		end
+	end
+	local function burst(tbl: { [string]: Tip? }, side: string?, n: number)
+		for s, tp in tbl do
+			if tp and (side == nil or side == s) then
+				tp.fx:Emit(n)
+			end
+		end
+	end
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("spasm", function()
+		scatter()
+		chestBurst:Emit(18)
+		chestSpark:Emit(10)
+	end)
+	on("clutch", function()
+		if headFx then
+			headFx:Emit(16)
+		end
+	end)
+	on("scream", function()
+		burst(hands, nil, 26)
+		chestSpark:Emit(14)
+	end)
+	on("slam", function()
+		local a = rng:NextNumber() * TAU
+		strikeAt[1] = V(math.cos(a) * 2.2, c.groundY, math.sin(a) * 2.2)
+		strikeAt[2] = V(-math.cos(a) * 2.6, c.groundY, -math.sin(a) * 2.6)
+		floorShock:Emit(2)
+		floorDebris:Emit(30)
+		smoke:Emit(10)
+		burst(hands, nil, 12)
+	end)
+	on("reboot", function()
+		scatter()
+		chestBurst:Emit(30)
+		floorShock:Emit(1)
+	end)
+	on("hitch", function(side)
+		burst(feet, side, 14)
+		scatter()
+	end)
+	on("step", function(side)
+		burst(feet, side, 4)
+	end)
+	on("impact", function()
+		floorShock:Emit(1)
+		floorDebris:Emit(14)
+		smoke:Emit(6)
+	end)
+	on("zap", function()
+		burst(hands, nil, 18)
+		chestSpark:Emit(16)
+	end)
+
 	local nextS = 0
+	local nextStrike = Sync.age(bus) + 2.5 + rng:NextNumber() * 2
+	local wasOut = false
 	Core.on(c, function(t, _, root)
+		local out = lightsOut()
+		-- the VFX side of the two-way sync: a huge bolt every 3.5-6.5 s (the body jolts)
+		local age = Sync.age(bus)
+		if age >= nextStrike then
+			nextStrike = age + 3.5 + rng:NextNumber() * 3
+			if not out and Sync.since(bus, "slam") > 1 then
+				local a = rng:NextNumber() * TAU
+				local r = 2.5 + rng:NextNumber() * 1.5
+				strikeAt[1] = V(math.cos(a) * r, c.groundY, math.sin(a) * r)
+				strikeAt[2] = V(math.cos(a + 0.5) * (r + 1.5), c.groundY, math.sin(a + 0.5) * (r + 1.5))
+				Sync.emit(bus, "strike")
+				floorShock:Emit(1)
+				floorDebris:Emit(10)
+			end
+		end
+		if out ~= wasOut then
+			wasOut = out
+			for _, th in throttled do
+				th.e.Rate = if out then th.rate * 0.08 else th.rate
+			end
+			for _, bm in spotBeams do
+				bm.Enabled = not out
+			end
+			glow.Enabled = not out
+		end
+		local eSpasm = Sync.env(bus, "spasm", 9)
 		for _, b in blocks do
 			if t >= b.nextT then
 				b.nextT = t + 0.04 + rng:NextNumber() * 0.08
 				local u = rng:NextUnitVector() * (2 + rng:NextNumber() * 6)
 				b.cf = CF(u.X, c.chestY + 1 + u.Y * 1.1, u.Z) * ANG(rng:NextNumber() * TAU, rng:NextNumber() * TAU, 0)
-				local s = 0.15 + rng:NextNumber() * 0.9
+				local s = (0.15 + rng:NextNumber() * 0.9) * (1 + eSpasm)
 				b.p.Size = V(s * (0.5 + rng:NextNumber() * 2), s * (0.3 + rng:NextNumber()), s)
-				b.p.Transparency = if rng:NextNumber() < 0.2 then 1 else 0
+				b.p.Transparency = if out or rng:NextNumber() < 0.2 then 1 else 0
 			end
 			Core.put(b.p, root * b.cf)
 		end
+		-- triangles: blown outward by the scream, the alarmed side flares white
+		local eScream = Sync.env(bus, "scream", 1.6)
+		local alarmW = Sync.window(bus, "alarm", 0.45)
+		local alarmSide = if Sync.payload(bus, "alarm") == "R" then 1 else -1
 		for i, tr in tris do
 			local a = tr.a + t * 1.1 + math.noise(i, t * 2) * 0.8
-			local cf = outward(a, 5, tr.y + math.sin(t * 3 + i) * 0.3) * CF(jitter(rng, 0.12))
+			local cf = outward(a, 5 + eScream * 3, tr.y + math.sin(t * 3 + i) * 0.3 + eScream * 0.8)
+				* CF(jitter(rng, 0.12 + eSpasm * 0.5))
 			B.putTri(tr.bars, root * cf, TS)
 			tr.att.Position = (cf * CF(0, -0.08, -0.08)).Position
+			local lit = alarmW >= 0 and cf.Position.X * alarmSide > 0
+			if lit ~= tr.lit then
+				tr.lit = lit
+				for _, bar in tr.bars do
+					bar.Color = if lit then WHITE else tr.col
+				end
+			end
+			local hide = if out then 1 else 0
+			if tr.bars[1].Transparency ~= hide then
+				for _, bar in tr.bars do
+					bar.Transparency = hide
+				end
+			end
+			tr.lbl.TextTransparency = hide
+			tr.lbl.TextStrokeTransparency = hide
 		end
+		-- error streams: scattered, or a tight scrolling ring around the clutched head
+		local clutchW = Sync.window(bus, "clutch", 0.85)
+		local headL = if headTip then root:PointToObjectSpace(headTip.WorldPosition) else V(0, c.headY, 0)
 		if t >= nextS then
-			nextS = t + 0.15
+			nextS = t + (if clutchW >= 0 then 0.05 else 0.15)
 			for i, s in streams do
-				if rng:NextNumber() < 0.4 then
+				if rng:NextNumber() < (if clutchW >= 0 then 0.9 else 0.4) then
 					s.lbl.Text = errs[rng:NextInteger(1, #errs)]
 				end
-				local a = rng:NextNumber() * TAU
-				s.att.Position = V(math.cos(a) * 3.6, c.groundY + 1 + i * 1.1, math.sin(a) * 3.6)
+				if clutchW < 0 then
+					local a = rng:NextNumber() * TAU
+					s.att.Position = V(math.cos(a) * 3.6, c.groundY + 1 + i * 1.1, math.sin(a) * 3.6)
+				end
 			end
 		end
+		for i, s in streams do
+			s.lbl.TextTransparency = if out then 1 else 0
+			s.lbl.TextStrokeTransparency = s.lbl.TextTransparency
+			if clutchW >= 0 then
+				local a = (i - 1) / #streams * TAU + t * 5
+				s.att.Position = headL + V(math.cos(a) * 1.9, (i - 2.5) * 0.3, math.sin(a) * 1.9)
+			end
+		end
+		-- searchlights: free sweep, or locked onto the side the head whipped to
+		local alarmHold = Sync.window(bus, "alarm", 0.9)
 		for k, sp in spots do
-			local a = t * 2.4 + k * math.pi
+			local a
+			if alarmHold >= 0 then
+				a = (if alarmSide > 0 then 0 else math.pi) + math.sin(t * 9 + k) * 0.35 + (k - 1.5) * 0.4
+			else
+				a = t * 2.4 + k * math.pi
+			end
 			sp.Position = V(math.cos(a) * 12, c.groundY, math.sin(a) * 12)
 		end
-		title.TextTransparency = if rng:NextNumber() < 0.12 then 0.8 else 0
-		title.Rotation = (rng:NextNumber() - 0.5) * 4
+		-- title: tears on spasms, swells on the scream, reboots
+		local rebootW = Sync.window(bus, "reboot", 0.5)
+		title.Text = if rebootW >= 0 then "REBOOTING..." else "KERNEL PANIC"
+		title.TextColor3 = if rebootW >= 0 then WHITE else c.c1
+		title.TextTransparency = if out then 1 elseif rng:NextNumber() < 0.12 + eSpasm * 0.5 then 0.8 else 0
+		title.TextStrokeTransparency = if out then 1 else 0
+		title.Rotation = (rng:NextNumber() - 0.5) * (4 + eSpasm * 30)
+		local sw = 1 + eScream * 0.35
+		title.Size = UDim2.fromScale(sw, sw)
+		title.Position = UDim2.fromScale((1 - sw) / 2 + (rng:NextNumber() - 0.5) * eSpasm * 0.4, (1 - sw) / 2)
+		-- the light: shakes, flashes on every synced hit, dead during the blackout
+		local flash = math.max(
+			Sync.env(bus, "slam", 5),
+			Sync.env(bus, "reboot", 6),
+			Sync.env(bus, "zap", 7),
+			Sync.env(bus, "strike", 6),
+			eScream * 0.6,
+			eSpasm * 0.7,
+			Sync.env(bus, "alarm", 8) * 0.5
+		)
 		shakeAtt.Position = jitter(rng, 2.5)
-		shake.Brightness = 1.5 + rng:NextNumber() * 6
-		shake.Color = if rng:NextNumber() < 0.2 then WHITE else c.c1
+		if out then
+			shake.Brightness = 0
+		else
+			shake.Brightness = 1.5 + rng:NextNumber() * 6 + flash * 10
+			shake.Color = if flash > 0.4 or rng:NextNumber() < 0.2 then WHITE else c.c1
+		end
 	end)
 end
 
 -- black hole orb above with accretion disc, particles sucked in
--- parts ~70, emitters 5
+-- parts ~72, emitters 11
+-- Synced to the Blender animation (tools/blender/anim/auras/EventHorizon.py, levitating set,
+-- lift 2 studs, idle 6.0 s). The hole hangs FIXED above the real ground (it does not bob with
+-- the body); the body is the thing being pulled. Everything on the floor stays on the floor.
+--   "reach"   arms shoot up to the orb    -> spark streams are torn from both hands up into the
+--                                           hole for the whole stretch (1.4 s), the matter
+--                                           streams flare white-hot, the disc spins faster
+--   "dilate"  the body freezes (time dilation) -> every emitter slows to 8 % (TimeScale), the
+--                                           debris, disc and gravity well freeze, photon
+--                                           ring flickers - then everything snaps back
+--   "crush"   curled into a ball           -> the orb implodes, the gravity circles collapse to
+--                                           the centre, a dark shock on the floor, light dims
+--   "flare"   starfish burst               -> Hawking flash: jets widen, spark nova from the
+--                                           chest, white floor shock, the orb overshoots, light surge
+--   walk "stroke" R/L  swim pull          -> sparks torn from that hand, sucked up to the hole
+--   "gulp" (reaction)                    -> orb flash + shock ring around the hole
+--   "warp" (jump reaction)               -> jets flare, sparks from both feet
+-- The gravity well, the debris spiral and the sigil breathing share the idle's 6 s beat
+-- (Sync.phase). And the other way round: every second debris cycle a big chunk falls through
+-- the horizon and the VFX fires "swallow" -> the body's "gulp" reaction (yanked toward it).
 A.EventHorizon = function(c: Ctx)
 	local rng = c.rng
-	local O = V(0, c.topY + 5, 0)
+	local bus = c.bus
+	local LIFT = 2 -- the Blender set's hover height (EventHorizon.py)
+	local BEAT = 6 -- idle length (s)
+	local g = c.groundY
+	-- the real ground under the levitating body: floor pieces and the hole ride it
+	local gnd = Core.part(c, V(0.2, 0.2, 0.2), BLACK, SMOOTH, 1)
+	local function groundCF(): CFrame
+		return c.root.CFrame * CF(0, -c.lift, 0)
+	end
+	gnd.CFrame = groundCF()
+	local O = V(0, c.topY + 5 + LIFT, 0) -- hole centre, ground frame
 	local hot = c.c1:Lerp(WHITE, 0.6)
 	local ember = Color3.fromRGB(255, 60, 20)
 	local orb = Core.part(c, V(3.4, 3.4, 3.4), BLACK, SMOOTH, 0, BALL)
 	local photon = Core.part(c, V(3.7, 3.7, 3.7), c.c1, FF, 0, BALL)
 	local function facing(): CFrame
-		local camL = c.root.CFrame:PointToObjectSpace(camPos())
+		local camL = gnd.CFrame:PointToObjectSpace(camPos())
 		if (camL - O).Magnitude < 0.1 then
 			return CF(O)
 		end
 		return CFrame.lookAt(O, camL) * ANG(math.pi / 2, 0, 0)
 	end
-	B.circle(c, { radius = 2.0, color = hot, width = 0.32, n = 8, anchor = facing })
-	B.circle(c, { radius = 2.6, color = c.c1, width = 0.14, n = 8, tr = 0.35, anchor = facing })
-	local function disc(t: number): CFrame
-		return CF(O) * ANG(0.3, t * 0.1, 0.12)
+	local ring1 = B.circle(c, { radius = 2.0, color = hot, width = 0.32, n = 8, anchor = facing, parent = gnd })
+	local ring2 = B.circle(c, { radius = 2.6, color = c.c1, width = 0.14, n = 8, tr = 0.35, anchor = facing, parent = gnd })
+	-- "local time": runs at 8 % during the time dilation (debris, disc, gravity well)
+	local lt = 0
+	local discSpin = 0
+	local function disc(): CFrame
+		-- B.ring places on the lifted root: take the lift back out
+		return CF(0, -c.lift, 0) * CF(O) * ANG(0.3, lt * 0.1 + discSpin, 0.12)
 	end
 	B.ring(c, { n = 24, radius = 3.2, seg = V(1, 0.08, 0), color = hot, color2 = c.c1, spin = 2.2, anchor = disc })
 	B.ring(c, {
@@ -1950,20 +2271,36 @@ A.EventHorizon = function(c: Ctx)
 		tr = 0.15,
 		anchor = disc,
 	})
-	B.circle(c, { radius = 6.6, color = ember, width = 0.5, n = 10, tr = 0.6, anchor = disc })
-	local pN = Core.att(c, nil, CF(O + V(0, 1.7, 0)))
-	local pNT = Core.att(c, nil, CF(O + V(0, 38, 0)))
-	local pS = Core.att(c, nil, CF(O - V(0, 1.7, 0)))
-	local pST = Core.att(c, nil, CF(O - V(0, 4, 0)))
-	Core.beam(c, pN, pNT, WHITE, 0.9, { w1 = 0.1, color2 = c.c1, tr = ns(0, 1) })
-	Core.beam(c, pN, pNT, c.c1, 2.4, { w1 = 0.3, tr = ns(0.5, 1), zoff = -0.05 })
-	Core.beam(c, pS, pST, WHITE, 0.6, { w1 = 0.05, color2 = c.c1, tr = ns(0, 1) })
+	B.circle(c, {
+		radius = 6.6,
+		color = ember,
+		width = 0.5,
+		n = 10,
+		tr = 0.6,
+		anchor = function()
+			return CF(O) * ANG(0.3, lt * 0.1 + discSpin, 0.12)
+		end,
+		parent = gnd,
+	})
+	local pN = Core.att(c, gnd, CF(O + V(0, 1.7, 0)))
+	local pNT = Core.att(c, gnd, CF(O + V(0, 38, 0)))
+	local pS = Core.att(c, gnd, CF(O - V(0, 1.7, 0)))
+	local pST = Core.att(c, gnd, CF(O - V(0, 4, 0)))
+	type Jet = { b: Beam, w0: number, w1: number }
+	local jets: { Jet } = {}
+	local function jet(b: Beam)
+		table.insert(jets, { b = b, w0 = b.Width0, w1 = b.Width1 })
+	end
+	jet(Core.beam(c, pN, pNT, WHITE, 0.9, { w1 = 0.1, color2 = c.c1, tr = ns(0, 1) }))
+	jet(Core.beam(c, pN, pNT, c.c1, 2.4, { w1 = 0.3, tr = ns(0.5, 1), zoff = -0.05 }))
+	jet(Core.beam(c, pS, pST, WHITE, 0.6, { w1 = 0.05, color2 = c.c1, tr = ns(0, 1) }))
 	-- matter spiralling up from the floor into the hole
-	type Stream = { base: Attachment, a: number }
+	type Stream = { base: Attachment, a: number, beam: Beam }
 	local streams: { Stream } = {}
+	local streamTr, streamHot = ns(0.6, 0.1), ns(0.15, 0)
 	for k = 1, 3 do
-		local base = Core.att(c)
-		Core.beam(c, base, pS, c.c1, 0.6, {
+		local base = Core.att(c, gnd)
+		local beam = Core.beam(c, base, pS, c.c1, 0.6, {
 			w1 = 0.1,
 			color2 = hot,
 			c0 = 4,
@@ -1972,9 +2309,9 @@ A.EventHorizon = function(c: Ctx)
 			tex = T.square,
 			texLen = 0.6,
 			texSpeed = 3,
-			tr = ns(0.6, 0.1),
+			tr = streamTr,
 		})
-		streams[k] = { base = base, a = (k - 1) / 3 * TAU }
+		streams[k] = { base = base, a = (k - 1) / 3 * TAU, beam = beam }
 	end
 	-- debris falling in
 	type Deb = { p: BasePart, off: number, a0: number }
@@ -1984,22 +2321,40 @@ A.EventHorizon = function(c: Ctx)
 		Core.trail(p, c.c1, 0.25, 0.4, ember)
 		debris[i] = { p = p, off = i / 12, a0 = rng:NextNumber() * TAU }
 	end
-	-- gravity well: circles contracting towards the player
+	-- the big chunk whose fall through the horizon fires "swallow"
+	local chunk = Core.part(c, V(0.9, 0.7, 0.8), hot)
+	Core.trail(chunk, hot, 0.6, 0.6, ember)
+	-- gravity well: circles contracting towards the player on the shared 6 s beat
+	local crushK = 0
 	for k = 1, 3 do
 		B.circle(c, {
 			radius = 9,
 			color = c.c1,
 			width = 0.12,
 			n = 10,
-			at = CF(0, c.groundY + 0.06, 0),
-			radiusFn = function(t)
-				return 0.5 + 9 * (1 - ((t * 0.22 + k / 3) % 1))
+			at = CF(0, g + 0.06, 0),
+			parent = gnd,
+			radiusFn = function()
+				return (0.5 + 9 * (1 - ((lt / BEAT * 3 + k / 3) % 1))) * (1 - 0.92 * crushK)
 			end,
 		})
 	end
-	B.sigil(c, { radius = 9.5, color = c.c1, color2 = ember, rings = 2, glow = 0.9, pulse = 3.8 })
-	local vol = Core.volume(c, V(16, 16, 16), CF(O))
-	Core.emit(vol, {
+	-- (own glow disc: the sigil's built-in one is placed on the lifted root)
+	local sig = B.sigil(c, { radius = 9.5, color = c.c1, color2 = ember, rings = 2, glow = nil, pulse = BEAT / 2 })
+	local sigDisc = Core.part(c, V(0.05, 9.5 * 2.1, 9.5 * 2.1), c.c1, NEON, 0.9, CYL)
+	for _, cir in sig.circles do
+		for _, a in cir.atts do
+			a.Parent = gnd
+		end
+	end
+	local emitters: { ParticleEmitter } = {}
+	local function E(e: ParticleEmitter): ParticleEmitter
+		table.insert(emitters, e)
+		return e
+	end
+	-- emission volumes around the hole (anchored, moved with the ground frame)
+	local vol = Core.part(c, V(16, 16, 16), BLACK, SMOOTH, 1)
+	E(Core.emit(vol, {
 		tex = T.spark,
 		color = cs(c.c1, hot),
 		size = ns(0.6, 0.1),
@@ -2011,9 +2366,9 @@ A.EventHorizon = function(c: Ctx)
 		shape = SPHERE,
 		shapeStyle = SURFACE,
 		inout = INWARD,
-	})
-	local dust = Core.volume(c, V(12, 12, 12), CF(O))
-	Core.emit(dust, {
+	}))
+	local dust = Core.part(c, V(12, 12, 12), BLACK, SMOOTH, 1)
+	E(Core.emit(dust, {
 		tex = T.smoke,
 		color = cs(ember, c.c1),
 		size = ns(3, 1),
@@ -2027,9 +2382,9 @@ A.EventHorizon = function(c: Ctx)
 		shape = SPHERE,
 		shapeStyle = SURFACE,
 		inout = INWARD,
-	})
+	}))
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	E(Core.emit(torso, {
 		tex = T.spark,
 		color = cs(c.c1, hot),
 		size = ns(0.35, 0),
@@ -2038,8 +2393,9 @@ A.EventHorizon = function(c: Ctx)
 		speed = nr(4, 6),
 		spread = V2(15, 15),
 		accel = V(0, 3, 0),
-	})
-	Core.emit(Core.att(c, c.root, CF(0, c.groundY + 0.1, 0)), {
+	}))
+	local floorAtt = Core.att(c, gnd, CF(0, g + 0.1, 0))
+	E(Core.emit(floorAtt, {
 		tex = T.shock,
 		color = cs(c.c1),
 		size = ns(14, 1),
@@ -2049,9 +2405,32 @@ A.EventHorizon = function(c: Ctx)
 		speed = nr(0.01, 0.01),
 		orient = PERP,
 		rot = nr(0, 360),
-	})
-	local orbAtt = Core.att(c, nil, CF(O))
-	Core.emit(orbAtt, {
+	}))
+	-- synced bursts
+	local floorFlash = E(Core.emit(Core.att(c, gnd, CF(0, g + 0.14, 0)), {
+		tex = T.shock,
+		color = cs(WHITE, c.c1),
+		size = ns(1, 22),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(0.7, 0.7),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	}))
+	local floorDark = E(Core.emit(Core.att(c, gnd, CF(0, g + 0.12, 0)), {
+		tex = T.shock,
+		color = cs(BLACK),
+		size = ns(18, 0.5),
+		transp = ns(0.2, 0.9),
+		rate = 0,
+		life = nr(0.55, 0.55),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		light = 0,
+	}))
+	local orbAtt = Core.att(c, gnd, CF(O))
+	E(Core.emit(orbAtt, {
 		tex = T.glow,
 		color = cs(c.c1, ember),
 		size = ns(9, 11),
@@ -2059,39 +2438,214 @@ A.EventHorizon = function(c: Ctx)
 		rate = 3,
 		life = nr(0.8, 1.2),
 		locked = true,
-	})
+	}))
+	local orbShock = E(Core.emit(orbAtt, {
+		tex = T.shock,
+		color = cs(hot, c.c1),
+		size = ns(3, 16),
+		transp = ns(0.1, 1),
+		rate = 0,
+		life = nr(0.6, 0.6),
+		speed = nr(0.01, 0.01),
+		bright = 3,
+	}))
+	local chest = Core.tip(c, "chest") or torso
+	local nova = E(Core.emit(chest, {
+		tex = T.spark,
+		color = cs(WHITE, c.c1),
+		size = ns(0.7, 0),
+		rate = 0,
+		life = nr(0.6, 1.2),
+		speed = nr(18, 32),
+		spread = V2(180, 180),
+		drag = 2.5,
+		bright = 4,
+	}))
+	-- hands / feet: sparks leave the fingertips and are sucked up into the hole
+	local function tipFx(which: string): ParticleEmitter?
+		local att = Core.tip(c, which)
+		if not att then
+			return nil
+		end
+		return E(Core.emit(att, {
+			tex = T.spark,
+			color = cs(hot, c.c1),
+			size = ns(0.4, 0),
+			rate = 0,
+			life = nr(0.7, 1.1),
+			speed = nr(3, 7),
+			spread = V2(30, 30),
+			dir = Enum.NormalId.Bottom,
+			accel = V(0, 26, 0),
+			bright = 3,
+		}))
+	end
+	local hands: { [string]: ParticleEmitter? } = { R = tipFx("rhand"), L = tipFx("lhand") }
+	local feet: { ParticleEmitter? } = { tipFx("rfoot"), tipFx("lfoot") }
 	local ol = Core.light(orbAtt, c.c1, 3.5, 22)
 	B.rootLight(c, ember, 2, 16, { pulse = 0.9, amp = 1 })
-	Core.on(c, function(t, _, root)
-		local cf = root * CF(O)
-		Core.put(orb, cf)
-		local s = 3.7 + Core.pulse(t, 0.9) * 0.18
+
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	local function handBurst(side: string?, n: number)
+		for s, e in hands do
+			if e and (side == nil or s == side) then
+				e:Emit(n)
+			end
+		end
+	end
+	on("reach", function()
+		handBurst(nil, 24)
+	end)
+	on("crush", function()
+		floorDark:Emit(2)
+	end)
+	on("flare", function()
+		nova:Emit(70)
+		floorFlash:Emit(2)
+		orbShock:Emit(1)
+	end)
+	on("stroke", function(side)
+		handBurst(side, 14)
+	end)
+	on("gulp", function()
+		orbShock:Emit(2)
+	end)
+	on("warp", function()
+		for _, e in feet do
+			if e then
+				e:Emit(16)
+			end
+		end
+	end)
+
+	local swallowed = 0
+	local lastCycle = -1
+	local dilated = false
+	local hotStreams = false
+	local ringTr = 0.35
+	Core.on(c, function(_, dt, root)
+		local ground = root * CF(0, -c.lift, 0)
+		Core.put(gnd, ground)
+		local holeCF = ground * CF(O)
+		Core.put(vol, holeCF)
+		Core.put(dust, holeCF)
+		-- time dilation: everything slows to 8 %
+		local dil = Sync.window(bus, "dilate", 0.46) >= 0
+		if dil ~= dilated then
+			dilated = dil
+			for _, e in emitters do
+				e.TimeScale = if dil then 0.08 else 1
+			end
+		end
+		local speed = if dil then 0.08 else 1
+		lt += dt * speed
+		local reachW = Sync.window(bus, "reach", 1.4)
+		local reaching = reachW >= 0 and not dil
+		discSpin += dt * speed * (if reaching then 2.2 else 0)
+		-- the orb: implodes on "crush", overshoots on "flare", flashes on "gulp"
+		local eCrush = Sync.env(bus, "crush", 2.2)
+		local eFlare = Sync.env(bus, "flare", 3)
+		local eGulp = Sync.env(bus, "gulp", 5)
+		local eWarp = Sync.env(bus, "warp", 4)
+		crushK = if Sync.since(bus, "crush") < Sync.since(bus, "flare") then math.min(1, eCrush * 1.6) else 0
+		local k = 1 - 0.5 * crushK + 0.35 * eFlare + 0.12 * eGulp
+		Core.put(orb, holeCF)
+		orb.Size = V(3.4, 3.4, 3.4) * k
+		local s = (3.7 + Core.pulse(lt, 0.9) * 0.18) * k
 		photon.Size = V(s, s, s)
-		Core.put(photon, cf)
+		Core.put(photon, holeCF)
+		local flick = if dil and rng:NextNumber() < 0.5 then 1 else 0.35
+		if flick ~= ringTr then
+			ringTr = flick
+			B.setBeamsTransparency(ring2.beams, flick)
+			B.setBeamsTransparency(ring1.beams, if dil then flick * 0.6 else 0)
+		end
+		-- jets: widen on the flare / warp / gulp
+		local jw = 1 + eFlare * 2.2 + eWarp * 1.2 + eGulp * 0.6
+		for _, j in jets do
+			j.b.Width0 = j.w0 * jw
+			j.b.Width1 = j.w1 * jw
+		end
+		-- matter streams: white-hot while reaching
+		if reaching ~= hotStreams then
+			hotStreams = reaching
+			for _, st in streams do
+				st.beam.Transparency = if reaching then streamHot else streamTr
+				st.beam.Width0 = if reaching then 1.1 else 0.6
+				st.beam.TextureSpeed = if reaching then 8 else 3
+			end
+		end
+		for _, e in hands do
+			if e then
+				e.Rate = if reaching then 30 else 0
+			end
+		end
 		for _, st in streams do
-			local a = st.a + t * 0.4
+			local a = st.a + lt * 0.4
 			st.base.CFrame = CFrame.fromMatrix(
-				V(math.cos(a) * 7, c.groundY + 0.1, math.sin(a) * 7),
+				V(math.cos(a) * 7, g + 0.1, math.sin(a) * 7),
 				V(-math.sin(a), 0, math.cos(a)),
 				Vector3.yAxis
 			)
 		end
+		-- debris on the shared beat
+		local ph = (lt / BEAT) % 1
 		for _, d in debris do
-			local f = (t * 0.18 + d.off) % 1
+			local f = (ph + d.off) % 1
 			local r = 9 * (1 - f) ^ 1.5 + 1.8
-			local a = d.a0 + f * f * 9 + t * 0.3
-			local y = (c.groundY + 0.5) + (O.Y - c.groundY - 0.5) * smooth01(f)
-			Core.put(d.p, root * CF(math.cos(a) * r, y, math.sin(a) * r) * ANG(t * 3, t * 2, 0))
+			local a = d.a0 + f * f * 9 + lt * 0.3
+			local y = (g + 0.5) + (O.Y - g - 0.5) * smooth01(f)
+			Core.put(d.p, ground * CF(math.cos(a) * r, y, math.sin(a) * r) * ANG(lt * 3, lt * 2, 0))
 			d.p.Transparency = if f > 0.92 then (f - 0.92) / 0.08 else 0
 		end
-		ol.Brightness = 3 + Core.pulse(t, 0.9) * 1.6
+		-- the big chunk: one fall per beat, swallowed on every second one -> "swallow"
+		local cyc = math.floor(lt / BEAT + 0.35)
+		local f = (lt / BEAT + 0.35) % 1
+		local r = 10 * (1 - f) ^ 1.4 + 1.6
+		local a = f * f * 7 + lt * 0.25
+		local y = (g + 1) + (O.Y - g - 1) * smooth01(f)
+		local big = cyc % 2 == 0
+		Core.put(chunk, ground * CF(math.cos(a) * r, y, math.sin(a) * r) * ANG(lt * 2, lt * 1.3, 0))
+		chunk.Transparency = if not big then 1 elseif f > 0.94 then (f - 0.94) / 0.06 else 0
+		if cyc ~= lastCycle then
+			if lastCycle >= 0 and lastCycle % 2 == 0 then
+				swallowed += 1
+				Sync.emit(bus, "swallow", swallowed)
+			end
+			lastCycle = cyc
+		end
+		-- sigil disc stays on the floor and darkens while crushed
+		Core.put(sigDisc, ground * CF(0, g + 0.015, 0) * FLAT)
+		sigDisc.Transparency = 0.9 + 0.08 * crushK - 0.25 * eFlare
+		ol.Brightness = math.max(
+			0.3,
+			(3 + Core.pulse(lt, 0.9) * 1.6) * (1 - 0.8 * crushK) + eFlare * 9 + eGulp * 4 + (if reaching then 1.5 else 0)
+		)
+		ol.Color = if eFlare > 0.3 then WHITE else c.c1
 	end)
 end
 
 -- pure black void silhouette with white outline and inverted pixels
--- parts ~75, emitters 4
+-- parts ~100 (incl. 2 afterimage sets), emitters 9
+-- Synced to the Blender animation (tools/blender/anim/auras/NullPointer.py, levitating set, lift
+-- 1.5 studs). Idle markers (4.8 s loop):
+--   "point" R/L -> the cursor glitch-jumps to the empty spot that hand points at (4 studs along
+--                  the arm) + pixel burst from the fingertips
+--   "deref"     -> segfault: the cursor slams into the head, the whole aura INVERTS (white body,
+--                  black outline, pixel colours swap), SIGSEGV glyph flash, chest shock
+--   "glitch"    -> the void silhouette tears sideways for a few frames, glyphs scramble
+--   "null"      -> frozen null pose: the light cuts out and the pixels freeze
+--   "thud"      -> the body hits the floor: floor shock ring, square burst, disc flash
+--   "repoint"   -> re-referenced: inversion ends, cursor back above the head, pixel geyser
+-- Walk: "skip" R/L (dropped frame) -> a black afterimage of the body stays behind and fades +
+-- pixel puff from the pointing hand. While gliding the cursor wanders; when it lands on the head
+-- the VFX emits "poke" (pose flinch reaction, which itself fires "deref"). Landing plays the
+-- "crash" reaction ("thud" + "glitch"). Floor pieces stay on the real ground under the hover.
 A.NullPointer = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	local holder = c.folder.Parent
 	for _, d in c.char:GetDescendants() do
 		if holder and d:IsDescendantOf(holder) then
@@ -2103,10 +2657,22 @@ A.NullPointer = function(c: Ctx)
 			Core.override(c, d, "Transparency", 1)
 		end
 	end
+	-- the real ground under the levitating body (attachments that must stay on the floor ride it)
+	local gnd = Core.part(c, V(0.2, 0.2, 0.2), BLACK, SMOOTH, 1)
 	local void = Instance.new("Model")
 	void.Name = "Void"
 	void.Parent = c.folder
-	local sil = B.clones(c, { set = "full", color = BLACK, mat = SMOOTH, scale = 1.06 })
+	-- "glitch": the silhouette tears sideways (the offset is refreshed by the updater below)
+	local tear = Vector3.zero
+	local sil = B.clones(c, {
+		set = "full",
+		color = BLACK,
+		mat = SMOOTH,
+		scale = 1.06,
+		map = function(cf: CFrame): CFrame
+			return if tear.Magnitude > 0 then cf + tear else cf
+		end,
+	})
 	for _, p in sil do
 		p.Parent = void
 	end
@@ -2118,8 +2684,18 @@ A.NullPointer = function(c: Ctx)
 	hl.OutlineTransparency = 0
 	hl.DepthMode = Enum.HighlightDepthMode.Occluded
 	hl.Parent = c.folder
+	-- afterimages for the walk's dropped frames (two sets, alternating R / L)
+	type Ghost = { parts: { BasePart }, t0: number, pending: boolean }
+	local ghosts: { Ghost } = {}
+	for k = 1, 2 do
+		local parts: { BasePart } = {}
+		for i, src in c.body do
+			parts[i] = Core.cloneShape(c, src, BLACK, SMOOTH, 1, 1.04)
+		end
+		ghosts[k] = { parts = parts, t0 = -math.huge, pending = false }
+	end
 	-- inverted pixels: black ones live in the void model and get the white outline
-	type Px = { p: BasePart, a: number, r: number, y: number, nextT: number, w: number }
+	type Px = { p: BasePart, a: number, r: number, y: number, nextT: number, w: number, black: boolean }
 	local pix: { Px } = {}
 	for i = 1, 28 do
 		local black = i % 2 == 1
@@ -2134,15 +2710,20 @@ A.NullPointer = function(c: Ctx)
 			y = c.groundY + 0.6 + rng:NextNumber() * (c.topY - c.groundY + 3),
 			nextT = 0,
 			w = (0.15 + rng:NextNumber() * 0.25) * (if i % 4 < 2 then 1 else -1),
+			black = black,
 		}
 	end
 	local words = { "NULL", "0x00000000", "nil", "void*", "&null", "SIGSEGV", "*ptr = ?" }
-	type Gl = { att: Attachment, lbl: TextLabel, a: number, y: number }
+	type Gl = { att: Attachment, lbl: TextLabel, a: number, y: number, word: string }
 	local glyphs: { Gl } = {}
 	for i = 1, 6 do
 		local att, lbl = B.glyph(c, words[i], WHITE, V2(2.2, 0.42), F.tech, nil, BLACK)
-		glyphs[i] = { att = att, lbl = lbl, a = (i - 1) / 6 * TAU, y = c.groundY + 1 + i * 0.85 }
+		glyphs[i] = { att = att, lbl = lbl, a = (i - 1) / 6 * TAU, y = c.groundY + 1 + i * 0.85, word = words[i] }
 	end
+	-- SIGSEGV flash over the head on every dereference
+	local _, segv = B.glyph(c, "SEGMENTATION FAULT", WHITE, V2(5, 0.6), F.tech, CF(0, c.topY + 1.6, 0), BLACK)
+	segv.TextTransparency = 1
+	segv.TextStrokeTransparency = 1
 	-- the pointer: a giant cursor arrow that keeps pointing at nothing
 	local arrow = {
 		Core.part(c, V(0.3, 2.4, 0.3), WHITE),
@@ -2151,7 +2732,12 @@ A.NullPointer = function(c: Ctx)
 	}
 	local g = c.groundY
 	local disc = Core.part(c, V(0.04, 14, 14), BLACK, SMOOTH, 0, CYL)
-	B.sigil(c, { radius = 7, color = WHITE, rings = 3, glow = nil, pulse = 1.6 })
+	local sig = B.sigil(c, { radius = 7, color = WHITE, rings = 3, glow = nil, pulse = 1.6 })
+	for _, cir in sig.circles do
+		for _, a in cir.atts do
+			a.Parent = gnd
+		end
+	end
 	B.ring(c, {
 		n = 20,
 		gap = 2,
@@ -2160,7 +2746,7 @@ A.NullPointer = function(c: Ctx)
 		color = WHITE,
 		spin = -0.4,
 		anchor = function()
-			return CF(0, g + 0.06, 0)
+			return CF(0, g + 0.06 - c.lift, 0)
 		end,
 	})
 	B.ring(c, {
@@ -2202,7 +2788,9 @@ A.NullPointer = function(c: Ctx)
 		light = 0,
 		rotSpeed = nr(-30, 30),
 	})
-	B.floorEmit(c, 6, {
+	-- floor emitters on an anchored volume that stays on the real ground
+	local floorVol = Core.part(c, V(12, 0.1, 12), BLACK, SMOOTH, 1)
+	local floorSq = Core.emit(floorVol, {
 		tex = T.square,
 		color = cs(WHITE),
 		size = ns(0.3, 0),
@@ -2211,14 +2799,160 @@ A.NullPointer = function(c: Ctx)
 		life = nr(1.5, 2.5),
 		speed = nr(2, 4),
 		rot = nr(0, 0),
+		shape = BOX,
 	})
+	local geyser = Core.emit(floorVol, {
+		tex = T.square,
+		color = cs(WHITE, BLACK),
+		size = ns(0.45, 0.1),
+		transp = ns(0, 0.2, 1),
+		rate = 0,
+		life = nr(0.6, 1.1),
+		speed = nr(8, 14),
+		accel = V(0, -6, 0),
+		rot = nr(0, 0),
+		shape = BOX,
+		bright = 2,
+	})
+	local gAtt = Core.att(c, gnd, CF(0, g + 0.12, 0))
+	local floorShock = Core.emit(gAtt, {
+		tex = T.shock,
+		color = cs(WHITE),
+		size = ns(1, 18),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(0.7, 0.7),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
+	local chestShock = Core.emit(Core.tip(c, "chest") or Core.att(c, c.torso), {
+		tex = T.shock,
+		color = cs(WHITE),
+		size = ns(1, 11),
+		transp = ns(0.1, 1),
+		rate = 0,
+		life = nr(0.45, 0.45),
+		bright = 3,
+	})
+	-- fingertip pixel bursts (pointing, dropped frames)
+	type Hand = { att: Attachment, pop: ParticleEmitter }
+	local hands: { [string]: Hand } = {}
+	local TIPS: { [string]: string } = { R = "rhand", L = "lhand" }
+	for side, tip in TIPS do
+		local att = Core.tip(c, tip)
+		if att then
+			hands[side] = {
+				att = att,
+				pop = Core.emit(att, {
+					tex = T.square,
+					color = cs(WHITE, BLACK),
+					size = ns(0.32, 0),
+					transp = ns(0, 1),
+					rate = 0,
+					life = nr(0.35, 0.7),
+					speed = nr(4, 10),
+					spread = V2(35, 35),
+					dir = Enum.NormalId.Bottom, -- out of the fingertips
+					drag = 3,
+					rot = nr(0, 0),
+				}),
+			}
+		end
+	end
+	local headTip = Core.tip(c, "head")
 	local light = B.rootLight(c, WHITE, 2, 16)
+
+	-- pointer state: "rand" wanders (walk / fallback), "aim" = scripted spot, "head" = rides the head
 	local ptrAt, ptrFrom = V(0, c.topY + 0.6, 0), V(0, c.topY + 0.6, 0)
 	local ptrT, nextPtr = 0, 0
+	local ptrMode = "rand"
+	local aimSide: string? = nil -- a "point" marker waiting for the updater to read the arm
+	local invUntil = 0 -- inverted colours until this os.clock()
+	local inverted = false
+	local darkUntil = 0
+	local function jump(to: Vector3, t: number)
+		ptrFrom = ptrAt
+		ptrAt = to
+		ptrT = t
+	end
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	on("point", function(side: any)
+		local sd = if side == "L" then "L" else "R"
+		aimSide = sd
+		local h = hands[sd]
+		if h then
+			h.pop:Emit(22)
+		end
+	end)
+	on("deref", function()
+		ptrMode = "head"
+		ptrT = os.clock()
+		ptrFrom = ptrAt
+		local walking = Sync.get(bus, "move") > 0.5
+		invUntil = os.clock() + (if walking then 0.45 else 1.6)
+		chestShock:Emit(2)
+		for _, h in hands do
+			h.pop:Emit(10)
+		end
+	end)
+	on("null", function()
+		darkUntil = os.clock() + 0.25
+	end)
+	on("thud", function()
+		floorShock:Emit(1)
+		floorSq:Emit(45)
+	end)
+	on("repoint", function()
+		invUntil = 0
+		ptrMode = "aim"
+		jump(V(0, c.topY + 0.6, 0), os.clock())
+		geyser:Emit(60)
+		chestShock:Emit(1)
+	end)
+	on("skip", function(side: any)
+		local gh = ghosts[if side == "L" then 2 else 1]
+		gh.pending = true
+		local h = hands.R
+		if h then
+			h.pop:Emit(8)
+		end
+	end)
+
 	Core.on(c, function(t, _, root)
-		Core.put(disc, root * CF(0, g + 0.02, 0) * FLAT)
+		local ground = root * CF(0, -c.lift, 0)
+		Core.put(gnd, ground)
+		Core.put(floorVol, ground * CF(0, g + 0.1, 0))
+		local eThud = Sync.env(bus, "thud", 4)
+		local eRep = Sync.env(bus, "repoint", 5)
+		local glW = Sync.window(bus, "glitch", 0.1)
+		local derefW = Sync.window(bus, "deref", 0.12)
+		-- inversion
+		local inv = os.clock() < invUntil
+		if inv ~= inverted then
+			inverted = inv
+			hl.FillColor = if inv then WHITE else BLACK
+			hl.OutlineColor = if inv then BLACK else WHITE
+			disc.Color = if inv then WHITE else BLACK
+			disc.Material = if inv then NEON else SMOOTH
+			for _, q in pix do
+				local b = q.black ~= inv
+				q.p.Color = if b then BLACK else WHITE
+				q.p.Material = if b then SMOOTH else NEON
+			end
+		end
+		-- the silhouette tears on "glitch" / the first frames of a dereference
+		if glW >= 0 or derefW >= 0 then
+			tear = V(rng:NextNumber() - 0.5, (rng:NextNumber() - 0.5) * 0.3, rng:NextNumber() - 0.5) * 0.9
+		else
+			tear = Vector3.zero
+		end
+		Core.put(disc, ground * CF(0, g + 0.02, 0) * FLAT)
+		local frozen = Sync.since(bus, "null") < 0.2
 		for _, q in pix do
-			if t >= q.nextT then
+			if t >= q.nextT and not frozen then
 				q.nextT = t + 0.15 + rng:NextNumber() * 0.5
 				q.p.Transparency = if rng:NextNumber() < 0.15 then 1 else 0
 			end
@@ -2228,45 +2962,116 @@ A.NullPointer = function(c: Ctx)
 				root * CF(math.cos(a) * q.r, q.y + math.sin(t + q.a) * 0.3, math.sin(a) * q.r) * ANG(0, -a, 0)
 			)
 		end
+		local scramble = glW >= 0 or derefW >= 0
 		for i, gl in glyphs do
 			local a = gl.a - t * 0.3
 			gl.att.Position = V(math.cos(a) * 4.2, gl.y + math.sin(t * 0.8 + i) * 0.25, math.sin(a) * 4.2)
-			local inv = math.noise(i, t * 1.5) > 0.3
-			gl.lbl.TextColor3 = if inv then BLACK else WHITE
-			gl.lbl.TextStrokeColor3 = if inv then WHITE else BLACK
+			local flip = (math.noise(i, t * 1.5) > 0.3) ~= inv
+			gl.lbl.TextColor3 = if flip then BLACK else WHITE
+			gl.lbl.TextStrokeColor3 = if flip then WHITE else BLACK
+			gl.lbl.Text = if scramble then Core.hex(8, rng) else gl.word
 		end
-		-- pointer glitch-jumps between the player and empty spots
-		if t >= nextPtr then
+		local eSeg = Sync.env(bus, "deref", 2.2)
+		segv.TextTransparency = if eSeg > 0.05 and rng:NextNumber() > 0.15 then 1 - eSeg else 1
+		segv.TextStrokeTransparency = segv.TextTransparency
+		-- afterimages
+		for _, gh in ghosts do
+			if gh.pending then
+				gh.pending = false
+				gh.t0 = t
+				for i, p in gh.parts do
+					local src = c.body[i]
+					if src then
+						Core.put(p, src.CFrame)
+					end
+				end
+			end
+			local age = t - gh.t0
+			local tr = if age < 0.45 then 0.3 + 0.7 * (age / 0.45) else 1
+			if gh.parts[1] and gh.parts[1].Transparency ~= tr then
+				for _, p in gh.parts do
+					p.Transparency = tr
+				end
+			end
+		end
+		-- the pointer
+		local move = Sync.get(bus, "move")
+		local scripted = Sync.count(bus, "point") > 0 and move < 0.5
+		if aimSide then
+			local h = hands[aimSide]
+			aimSide = nil
+			if h then
+				local arm = h.att.Parent :: BasePart
+				local dir = -arm.CFrame.UpVector
+				local spot = root:PointToObjectSpace(h.att.WorldPosition + dir * 4)
+				ptrMode = "aim"
+				jump(spot + V(0, -0.3, 0), t)
+			end
+		end
+		if ptrMode == "head" and headTip then
+			local hp = root:PointToObjectSpace(headTip.WorldPosition) + V(0, -0.2, 0)
+			ptrAt = hp
+			if t - ptrT > 1.4 or (move > 0.5 and t - ptrT > 0.5) then
+				ptrMode = if scripted then "aim" else "rand"
+				jump(V(0, c.topY + 0.6, 0), t)
+			end
+		elseif not scripted and t >= nextPtr then
+			-- gliding (or no Blender clip yet): the cursor wanders, and pokes the head now and then
+			ptrMode = "rand"
 			nextPtr = t + 0.8 + rng:NextNumber() * 1.2
-			ptrFrom = ptrAt
-			ptrT = t
-			if rng:NextNumber() < 0.4 then
-				ptrAt = V(0, c.topY + 0.6, 0)
+			local r0 = rng:NextNumber()
+			if r0 < 0.22 and move > 0.6 and Sync.since(bus, "poke") > 3 then
+				jump(V(0, c.topY + 0.1, 0), t)
+				Sync.emit(bus, "poke")
+			elseif r0 < 0.4 then
+				jump(V(0, c.topY + 0.6, 0), t)
 			else
 				local a = rng:NextNumber() * TAU
 				local r = 2.5 + rng:NextNumber() * 3
-				ptrAt = V(math.cos(a) * r, g + 0.5 + rng:NextNumber() * 3, math.sin(a) * r)
+				jump(V(math.cos(a) * r, g + 0.5 + rng:NextNumber() * 3, math.sin(a) * r), t)
 			end
 		end
 		local f = smooth01((t - ptrT) / 0.12)
-		local tip = ptrFrom:Lerp(ptrAt, f) + V(0, 0.3 + Core.pulse(t, 0.8) * 0.4, 0)
+		local bob = if ptrMode == "head" then 0 else 0.3 + Core.pulse(t, 0.8) * 0.4
+		local tip = ptrFrom:Lerp(ptrAt, f) + V(0, bob, 0)
 		local up = CF(tip) * ANG(0, t * 0.8, 0) -- tip at origin, arrow points down
 		Core.put(arrow[1], root * up * CF(0, 1.4, 0))
 		Core.put(arrow[2], root * up * ANG(0, 0, 0.6) * CF(0, 0.6, 0))
 		Core.put(arrow[3], root * up * ANG(0, 0, -0.6) * CF(0, 0.6, 0))
-		local off = rng:NextNumber() < 0.03
+		local off = rng:NextNumber() < 0.03 or (f < 1 and rng:NextNumber() < 0.5)
+		local arrowCol = if inv then BLACK else WHITE
 		for _, p in arrow do
 			p.Transparency = if off then 1 else 0
+			p.Color = arrowCol
 		end
-		light.Brightness = if off then 0.2 else 1.8 + Core.pulse(t, 1.6) * 0.8
+		local dark = os.clock() < darkUntil or (Sync.since(bus, "null") < 0.2)
+		light.Brightness = if dark or off
+			then 0.1
+			else 1.8 + Core.pulse(t, 1.6) * 0.8 + eThud * 3 + eRep * 4 + eSeg * 2
 	end)
 end
 
 ---------------------------------------------------------------- SINGULARITY
 
 -- white core star, galaxy spiral, gravitational rings, light beams
--- parts ~86, emitters 7
+-- parts ~88, emitters 14
+--
+-- Synced to the Blender animation (tools/blender/anim/auras/Singularity.py, idle 6 s):
+--   "gather" (right hand sweeps up)  -> both hands start streaming sparks up to the star
+--   "reach"  (hands up at the star)  -> light threads hand -> star flash on
+--   "pull"   (hands drag the mass down) -> galaxy, rings and star shells contract, spin speeds up
+--   "collapse" (curled into a ball) -> implosion at the star, light dims, the core trembles
+--   "crack"  (head snaps up)         -> star flickers white, spikes flare
+--   "burst"  (body explodes open)    -> star burst, chest + ground shock, hand bursts, rings
+--                                       overshoot outward (spring), light flare, floor ripple
+--   "echo"   (aftershock arm flick)  -> smaller ripple + ring flash
+-- Walk (comet glide): "kick" L/R -> spark puff from that foot + floor ripple under it, the
+-- hands leave comet-tail sparks while moving. Every ~5 s of gliding the VFX emits "flare"
+-- (spikes flash, star throws sparks) which plays the pose's flare reaction: "catch" -> a
+-- light thread star -> right hand + hand burst, "fling" -> the hand throws the sparks back.
+-- Runner events: "launch" (jump reaction) and "impact" (land reaction) -> ground shock + ripple.
 A.Singularity = function(c: Ctx)
+	local bus = c.bus
 	local yS = c.topY + 4
 	local SP = V(0, yS, 0)
 	local star = Core.part(c, V(2.2, 2.2, 2.2), WHITE, NEON, 0, BALL)
@@ -2276,12 +3081,40 @@ A.Singularity = function(c: Ctx)
 	for i = 1, 4 do
 		spikes[i] = Core.part(c, V(if i <= 2 then 16 else 9, 0.14, 0.04), WHITE, NEON, 0.1)
 	end
+	local PULL_DUR = 1.0 -- "pull" -> "collapse" in the clip (frames 78 -> 108)
+	local HOLD_MAX = 1.9 -- a burst always follows the pull within 1.67 s; later = clip left idle
+	local function noClip(): boolean
+		return Sync.count(bus, "gather") + Sync.count(bus, "kick") + Sync.count(bus, "burst") == 0
+			and Sync.age(bus) > 1.2
+	end
+	-- Size multiplier of everything gravitational: 1 = open, 0.15 = collapsed point,
+	-- > 1 = the spring overshoot after the burst. Driven by the pose markers.
 	local function collapse(t: number): number
-		local ph = t % 7
-		if ph > 6.3 then
-			return 1 - smooth01((ph - 6.3) / 0.7) * 0.85
+		local sP, sB = Sync.since(bus, "pull"), Sync.since(bus, "burst")
+		if sP == math.huge and sB == math.huge then
+			if not noClip() then
+				return 1 -- the clip runs, its first pull has not come yet (or only walking)
+			end
+			-- no Blender clip plays on this rig: the old free-running 7 s cycle
+			local ph = t % 7
+			if ph > 6.3 then
+				return 1 - smooth01((ph - 6.3) / 0.7) * 0.85
+			end
+			return 1
 		end
-		return 1
+		if sP < sB then
+			if sP < PULL_DUR then
+				return 1 - smooth01(sP / PULL_DUR) * 0.85
+			elseif sP < HOLD_MAX then
+				return 0.15
+			end
+			return 0.15 + 0.85 * smooth01((sP - HOLD_MAX) / 0.6) -- walked away mid-collapse
+		end
+		return 1 + 0.45 * math.exp(-3.2 * sB) * math.cos(7 * sB)
+	end
+	local function trembling(): boolean
+		local sP, sB = Sync.since(bus, "pull"), Sync.since(bus, "burst")
+		return sP < sB and sP > PULL_DUR - 0.05 and sP < HOLD_MAX
 	end
 	-- galaxy spiral around the waist
 	local NS = 16
@@ -2305,10 +3138,11 @@ A.Singularity = function(c: Ctx)
 		end
 		armPolys[arm] = B.poly(c, pts, c.c2, 0.24, { w1 = 0.1, tr = ns(0.35), segs = 4 })
 	end
-	-- gravitational rings
+	-- gravitational rings (their width flashes on the burst / echo)
+	local rings: { B.Circle } = {}
 	for k = 1, 3 do
 		local r0 = 3.8 + k * 2.2
-		B.circle(c, {
+		rings[k] = B.circle(c, {
 			radius = r0,
 			color = if k == 2 then WHITE else c.c2,
 			width = 0.16,
@@ -2365,12 +3199,33 @@ A.Singularity = function(c: Ctx)
 		trail = 0.8,
 		life = 0.9,
 	})
+	-- floor ripple: expands from under the body (or the kicking foot) on every impact-like event
+	local rippleAt = V(0, 0, 0)
+	local rippleT, rippleBig = -math.huge, 1
+	local function ripple(big: number, at: Vector3?)
+		rippleT, rippleBig, rippleAt = os.clock(), big, at or Vector3.zero
+	end
+	local rip = B.circle(c, {
+		radius = 1,
+		color = WHITE,
+		color2 = c.c2,
+		width = 0.3,
+		n = 10,
+		anchor = function()
+			return CF(rippleAt.X, c.groundY + 0.08, rippleAt.Z)
+		end,
+		radiusFn = function()
+			local u = math.clamp((os.clock() - rippleT) / 0.75, 0, 1)
+			return 0.8 + (1 - (1 - u) ^ 3) * 9 * rippleBig
+		end,
+	})
 	-- god beams into the sky + the main light pillar
 	local starAtt = Core.att(c, nil, CF(SP))
 	local tops: { Attachment } = {}
+	local godBeams: { Beam } = {}
 	for k = 1, 6 do
 		tops[k] = Core.att(c)
-		Core.beam(c, starAtt, tops[k], WHITE, 1.2, { w1 = 7, color2 = c.c2, tr = ns(0.25, 1), segs = 2 })
+		godBeams[k] = Core.beam(c, starAtt, tops[k], WHITE, 1.2, { w1 = 7, color2 = c.c2, tr = ns(0.25, 1), segs = 2 })
 	end
 	B.pillar(c, { color = WHITE, color2 = c.c2, height = 130, width = 5, tr = 0.3, streams = 4, radius = 2.2 })
 	local floorAtt = Core.att(c, nil, CF(0, c.groundY + 0.05, 0))
@@ -2405,6 +3260,29 @@ A.Singularity = function(c: Ctx)
 		drag = 2,
 		bright = 3,
 	})
+	-- the collapse: an implosion sucked into the star
+	local implode = Core.emit(starAtt, {
+		tex = T.implode,
+		color = cs(WHITE, c.c2),
+		size = ns(12, 0.5),
+		transp = ns(0.2, 1),
+		rate = 0,
+		life = nr(0.9, 0.9),
+		locked = true,
+	})
+	-- sparks sucked in from a 7-stud shell around the star (shape needs a part, not an attachment)
+	local inward = Core.emit(Core.volume(c, V(14, 14, 14), CF(SP)), {
+		tex = T.spark,
+		color = cs(c.c2, WHITE),
+		size = ns(0.5, 0),
+		rate = 0,
+		life = nr(0.45, 0.55),
+		speed = nr(13, 15),
+		shape = SPHERE,
+		shapeStyle = SURFACE,
+		inout = INWARD,
+		bright = 2,
+	})
 	Core.emit(Core.att(c, c.torso), {
 		tex = T.spark,
 		color = cs(WHITE, c.c2),
@@ -2413,6 +3291,17 @@ A.Singularity = function(c: Ctx)
 		life = nr(1, 1.8),
 		speed = nr(2, 5),
 		spread = V2(180, 180),
+	})
+	-- chest shockwave (burst) rides the animated torso
+	local chestAtt = Core.tip(c, "chest") or Core.att(c, c.torso)
+	local chestShock = Core.emit(chestAtt, {
+		tex = T.shock,
+		color = cs(WHITE, c.c2),
+		size = ns(1, 14),
+		transp = ns(0.1, 1),
+		rate = 0,
+		life = nr(0.6, 0.6),
+		bright = 3,
 	})
 	Core.emit(Core.att(c, c.root, CF(0, c.groundY + 0.1, 0)), {
 		tex = T.shock,
@@ -2424,7 +3313,18 @@ A.Singularity = function(c: Ctx)
 		speed = nr(0.01, 0.01),
 		orient = PERP,
 	})
-	B.floorEmit(c, 9, {
+	local groundShock = Core.emit(Core.att(c, c.root, CF(0, c.groundY + 0.12, 0)), {
+		tex = T.shock,
+		color = cs(WHITE, c.c2),
+		size = ns(1, 26),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(0.9, 0.9),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
+	local floorSparks = B.floorEmit(c, 9, {
 		tex = T.glow,
 		color = cs(WHITE, c.c2),
 		size = ns(0, 0.8, 0),
@@ -2444,29 +3344,192 @@ A.Singularity = function(c: Ctx)
 		dir = Enum.NormalId.Bottom,
 		shape = BOX,
 	})
+	-- hands: gather streams (up to the star), bursts, comet-tail sparks, light threads
+	type Hand = { att: Attachment, stream: ParticleEmitter, pop: ParticleEmitter, tail: ParticleEmitter, thread: Beam }
+	local hands: { [string]: Hand } = {}
+	for _, side in { "rhand", "lhand" } do
+		local att = Core.tip(c, side)
+		if not att then
+			continue
+		end
+		hands[side] = {
+			att = att,
+			stream = Core.emit(att, {
+				tex = T.spark,
+				color = cs(WHITE, c.c2),
+				size = ns(0.45, 0),
+				rate = 0,
+				life = nr(0.5, 0.8),
+				speed = nr(5, 9),
+				spread = V2(12, 12),
+				accel = V(0, 14, 0),
+				dir = Enum.NormalId.Bottom, -- out of the fingertips
+				bright = 2.5,
+			}),
+			pop = Core.emit(att, {
+				tex = T.spark,
+				color = cs(WHITE, c.c2),
+				size = ns(0.7, 0),
+				rate = 0,
+				life = nr(0.4, 0.8),
+				speed = nr(8, 16),
+				spread = V2(180, 180),
+				drag = 3,
+				bright = 3,
+			}),
+			tail = Core.emit(att, {
+				tex = T.glow,
+				color = cs(WHITE, c.c2),
+				size = ns(0.6, 0),
+				transp = ns(0.2, 1),
+				rate = 0,
+				life = nr(0.5, 0.9),
+				speed = nr(0, 0.4),
+			}),
+			thread = Core.beam(c, att, starAtt, WHITE, 0.25, { w1 = 0.05, color2 = c.c2, tr = ns(0.1, 0.4), segs = 6 }),
+		}
+	end
+	for _, h in hands do
+		h.thread.Enabled = false
+	end
+	local footPuff: { [string]: ParticleEmitter } = {}
+	local FEET: { [string]: string } = { R = "rfoot", L = "lfoot" }
+	for side, tip in FEET do
+		local att = Core.tip(c, tip)
+		if att then
+			footPuff[side] = Core.emit(att, {
+				tex = T.spark,
+				color = cs(WHITE, c.c2),
+				size = ns(0.5, 0),
+				rate = 0,
+				life = nr(0.4, 0.7),
+				speed = nr(4, 8),
+				spread = V2(50, 50),
+				dir = Enum.NormalId.Bottom,
+				drag = 2,
+				bright = 2.5,
+			})
+		end
+	end
 	local sl = Core.light(starAtt, WHITE, 5, 26)
 	B.rootLight(c, c.c2, 3, 20, { pulse = 1.3, amp = 1.2 })
-	local lastPh = 0
-	Core.on(c, function(t, _, root)
-		local col = collapse(t)
-		local ph = t % 7
-		if ph < lastPh then
-			burst:Emit(80)
+
+	-- one-off reactions to the pose markers
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	local function handPop(n: number, which: string?)
+		for side, h in hands do
+			if not which or side == which then
+				h.pop:Emit(n)
+			end
 		end
-		lastPh = ph
+	end
+	on("collapse", function()
+		implode:Emit(2)
+		inward:Emit(60)
+	end)
+	on("crack", function()
+		inward:Emit(30)
+	end)
+	on("burst", function()
+		burst:Emit(90)
+		chestShock:Emit(2)
+		groundShock:Emit(1)
+		floorSparks:Emit(40)
+		handPop(30)
+		ripple(1.2)
+	end)
+	on("echo", function()
+		groundShock:Emit(1)
+		burst:Emit(20)
+		ripple(0.7)
+	end)
+	on("kick", function(side: any)
+		local s = if side == "L" then -1 else 1
+		local puff = footPuff[if side == "L" then "L" else "R"]
+		if puff then
+			puff:Emit(14)
+		end
+		ripple(0.45, V(0.5 * s, 0, 1.6))
+	end)
+	on("launch", function()
+		groundShock:Emit(1)
+		burst:Emit(25)
+		ripple(0.8)
+	end)
+	on("impact", function()
+		groundShock:Emit(1)
+		floorSparks:Emit(30)
+		ripple(1)
+	end)
+	on("flare", function()
+		burst:Emit(18)
+	end)
+	on("catch", function()
+		handPop(28, "rhand")
+	end)
+	on("fling", function()
+		local h = hands.rhand
+		if h then
+			h.pop:Emit(40)
+			h.tail:Emit(20)
+		end
+	end)
+
+	local spin = 0
+	local flareT = 0
+	local fallbackPh = 0
+	local rng = c.rng
+	Core.on(c, function(t, dt, root)
+		local col = collapse(t)
+		local trem = trembling()
+		-- fallback burst for the free-running cycle (no Blender clip has played yet)
+		if noClip() then
+			local ph = t % 7
+			if ph < fallbackPh then
+				burst:Emit(80)
+			end
+			fallbackPh = ph
+		end
+		-- gliding: every ~5 s the star throws off a flare that the body catches
+		local move = Sync.get(bus, "move")
+		if move > 0.6 and Sync.get(bus, "air") < 0.5 then
+			flareT += dt
+			if flareT > 5 then
+				flareT = 0
+				Sync.emit(bus, "flare")
+			end
+		else
+			flareT = math.max(0, flareT - dt)
+		end
+		local eBurst = Sync.env(bus, "burst", 2.5)
+		local eEcho = Sync.env(bus, "echo", 4)
+		local eCrack = Sync.env(bus, "crack", 9)
+		local eFlare = Sync.env(bus, "flare", 3)
+
 		local scf = root * CF(SP)
+		if trem then
+			scf *= CF(jitter(rng, 0.35))
+		end
 		Core.put(star, scf)
-		local sa = 3.2 + Core.pulse(t, 1.3) * 0.5
+		local sa = (3.2 + Core.pulse(t, 1.3) * 0.5) * math.max(col, 0.35)
 		shellA.Size = V(sa, sa, sa)
 		Core.put(shellA, scf)
 		local sb = 4.4 * (0.9 + Core.pulse(t, 2.1) * 0.25) * col
 		shellB.Size = V(sb, sb, sb)
+		shellB.Transparency = 0.86 - math.max(eCrack, eBurst) * 0.5
 		Core.put(shellB, scf)
 		local look = CFrame.lookAt(scf.Position, camPos())
+		local spikeK = 1 + eCrack * 0.6 + eBurst * 1.2 + eFlare * 0.8
 		for i, s in spikes do
+			local len = (if i <= 2 then 16 else 9) * spikeK * math.max(col, 0.3)
+			s.Size = V(len, 0.14 * (1 + eBurst), 0.04)
 			Core.put(s, look * ANG(0, 0, (i - 1) * math.pi / 4 + t * 0.2 * (if i % 2 == 0 then 1 else -1)))
 		end
-		local gl = CF(0, -0.2, 0) * ANG(0, t * 0.5, 0)
+		-- the galaxy spins up while it is pulled in
+		spin += dt * (0.5 + 3.5 * math.clamp(1 - col, 0, 1))
+		local gl = CF(0, -0.2, 0) * ANG(0, spin, 0)
 		local gbase = root * gl
 		for arm, list in arms do
 			local poly = armPolys[arm]
@@ -2481,31 +3544,88 @@ A.Singularity = function(c: Ctx)
 				end
 			end
 		end
+		-- rings flash on the burst / echo
+		local rw = 0.16 * (1 + eBurst * 2.5 + eEcho * 1.2)
+		for _, ring in rings do
+			for _, b in ring.beams do
+				b.Width0 = rw
+				b.Width1 = rw
+			end
+		end
+		local ru = math.clamp((os.clock() - rippleT) / 0.75, 0, 1)
+		B.setBeamsTransparency(rip.beams, if ru >= 1 then 1 else 0.05 + ru * 0.95)
+		-- god beams widen on the burst
+		local gw = 7 * (1 + eBurst * 0.8)
+		for _, b in godBeams do
+			b.Width1 = gw
+		end
 		for k, a in tops do
 			local ang = (k - 1) / 6 * TAU + t * 0.15
 			a.Position = SP + V(math.cos(ang) * 12, 90, math.sin(ang) * 12)
 		end
-		sl.Brightness = if ph > 6.3 then 5 + (ph - 6.3) * 12 else 4.5 + Core.pulse(t, 1.3)
+		-- hands: streams while gathering, threads while reaching / pulling / catching
+		local sG, sR, sPl = Sync.since(bus, "gather"), Sync.since(bus, "reach"), Sync.since(bus, "pull")
+		local gathering = sG < sPl and sG < 1.4
+		local threads = (sR < sPl and sR < 1.2) or sPl < PULL_DUR
+		local catchW = Sync.window(bus, "catch", 0.5)
+		for side, h in hands do
+			h.stream.Rate = if gathering then 45 else 0
+			h.tail.Rate = 28 * math.clamp((move - 0.3) / 0.7, 0, 1)
+			local on1 = threads or (side == "rhand" and catchW >= 0)
+			h.thread.Enabled = on1
+			if on1 then
+				local w = if sPl < PULL_DUR then 0.25 + (1 - sPl / PULL_DUR) * 0.35 else 0.25
+				h.thread.Width0 = w
+			end
+		end
+		-- star light: dims while collapsed, flares on crack / burst
+		local base = 4.5 + Core.pulse(t, 1.3)
+		sl.Brightness = base * math.clamp(col, 0.3, 1.2) + eCrack * 6 + eBurst * 14 + eFlare * 4
+		sl.Range = 26 + eBurst * 14
 	end)
 end
 
 -- giant wireframe grid sphere, floating code pages, green god-rays
--- parts ~80, emitters 5
+-- parts ~60, emitters 10
+-- Synced to the Blender animation (tools/blender/anim/auras/Architect.py, levitating set, lift
+-- 2.2 studs; the floor grid / sigil / ring / pillar / voxels stay on the real ground under it).
+-- Idle markers (6 s loop):
+--   "key" R/L x6 -> typing in the air: a voxel is written in front of the body at that hand,
+--                   hand sparks, the cursor flashes solid
+--   "enter"      -> every typed voxel bursts, the code pages flash, the title refreshes
+--   "compile"    -> arm to the sky: god-rays widen + brighten, the sky pillar flares, code rain
+--                   triples, the wireframe sphere glows
+--   "build"      -> the world is thrown onto the floor: floor shock ring, a wave of voxels erupts
+--                   across the grid (inner -> outer), the grid lines flash, floor squares burst
+--   "sweep"      -> the pages fly outward (radius kick) and spin faster
+--   "error"      -> the sphere and its nodes flicker out, the title turns red "ERROR 404"
+--   "fix"        -> finger tap: the sphere snaps back with a flash, title restored, voxel at the
+--                   fingertip + hand sparks
+-- Walk: "tile" R/L -> a glowing code tile is written under that foot (fades), foot sparks.
+-- Every 6-9 s of gliding the VFX emits "pagefault" (a page glitches) -> the pose's pagefault
+-- reaction taps it ("fix"). Reactions: "ascend" (jump) -> pillar flare + rain burst + floor
+-- shock; "impact" (land) -> floor shock + grid flash + floor squares.
 A.Architect = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	local R = 8.5
 	local S = V(0, c.groundY + R * 0.55, 0)
+	-- the real ground under the levitating body: floor pieces ride this anchored part
+	local gnd = Core.part(c, V(0.2, 0.2, 0.2), c.c1, SMOOTH, 1)
 	local function meridian(k: number): (t: number) -> CFrame
 		return function(t: number): CFrame
 			return CF(S) * ANG(0, t * 0.15 + k * math.pi / 6, 0) * ANG(0, 0, math.pi / 2)
 		end
 	end
+	type Ring = { beams: { Beam }, tr: number }
+	local sphere: { Ring } = {}
 	for k = 0, 5 do
-		B.circle(c, { radius = R, color = c.c1, width = 0.1, tr = 0.3, n = 10, anchor = meridian(k) })
+		local cir = B.circle(c, { radius = R, color = c.c1, width = 0.1, tr = 0.3, n = 10, anchor = meridian(k) })
+		table.insert(sphere, { beams = cir.beams, tr = 0.3 })
 	end
 	local par = { -3.6, -1.8, 0, 2.4, 4.8, 6.9 }
 	for _, y in par do
-		B.circle(c, {
+		local cir = B.circle(c, {
 			radius = math.sqrt(R * R - y * y),
 			color = c.c1,
 			width = 0.09,
@@ -2513,6 +3633,7 @@ A.Architect = function(c: Ctx)
 			n = 10,
 			at = CF(S + V(0, y, 0)),
 		})
+		table.insert(sphere, { beams = cir.beams, tr = 0.35 })
 	end
 	local nodeY = { 2.4, -1.8 }
 	local nodes: { BasePart } = {}
@@ -2563,24 +3684,35 @@ A.Architect = function(c: Ctx)
 	end
 	-- god-rays from the sky converging on the player
 	local skyAtts: { Attachment } = {}
+	local rays: { Beam } = {}
 	local hit = Core.att(c, nil, CF(0, c.chestY, 0))
 	for k = 1, 7 do
 		skyAtts[k] = Core.att(c)
-		Core.beam(c, skyAtts[k], hit, c.c1, 6, { w1 = 1.2, color2 = WHITE, tr = ns(0.9, 0.55), segs = 2 })
+		rays[k] = Core.beam(c, skyAtts[k], hit, c.c1, 6, { w1 = 1.2, color2 = WHITE, tr = ns(0.9, 0.55), segs = 2 })
 	end
-	B.pillar(c, { color = c.c1, color2 = WHITE, height = 110, width = 3.6, tr = 0.45, streams = 3, radius = 1.8 })
+	local pillar = B.pillar(c, { color = c.c1, color2 = WHITE, height = 110, width = 3.6, tr = 0.45, streams = 3, radius = 1.8 })
+	local pillarW: { number } = {}
+	for i, b in pillar do
+		pillarW[i] = b.Width0
+		for _, a in { b.Attachment0, b.Attachment1 } do
+			if a and a.Parent == c.root then
+				a.Parent = gnd
+			end
+		end
+	end
 	-- floor grid
 	local g = c.groundY + 0.04
 	local GR = 10
+	local grid: { Beam } = {}
 	for k = -4, 4 do
 		local x = k * 2.4
 		local half = math.sqrt(math.max(0, GR * GR - x * x))
-		local a0 = Core.att(c, nil, CF(x, g, -half))
-		local a1 = Core.att(c, nil, CF(x, g, half))
-		Core.beam(c, a0, a1, c.c1, 0.07, { tr = ns(0.85, 0.3, 0.85), segs = 2 })
-		local b0 = Core.att(c, nil, CF(-half, g, x))
-		local b1 = Core.att(c, nil, CF(half, g, x))
-		Core.beam(c, b0, b1, c.c1, 0.07, { tr = ns(0.85, 0.3, 0.85), segs = 2 })
+		local a0 = Core.att(c, gnd, CF(x, g, -half))
+		local a1 = Core.att(c, gnd, CF(x, g, half))
+		table.insert(grid, Core.beam(c, a0, a1, c.c1, 0.07, { tr = ns(0.85, 0.3, 0.85), segs = 2 }))
+		local b0 = Core.att(c, gnd, CF(-half, g, x))
+		local b1 = Core.att(c, gnd, CF(half, g, x))
+		table.insert(grid, Core.beam(c, b0, b1, c.c1, 0.07, { tr = ns(0.85, 0.3, 0.85), segs = 2 }))
 	end
 	B.ring(c, {
 		n = 32,
@@ -2590,11 +3722,16 @@ A.Architect = function(c: Ctx)
 		color = c.c1,
 		spin = 0.1,
 		anchor = function()
-			return CF(0, g + 0.01, 0)
+			return CF(0, g + 0.01 - c.lift, 0)
 		end,
 	})
-	B.sigil(c, { radius = GR + 1.2, color = c.c1, color2 = WHITE, rings = 2, glow = 0.92, pulse = 2 })
-	-- voxels materialising: the world being written
+	local sig = B.sigil(c, { radius = GR + 1.2, color = c.c1, color2 = WHITE, rings = 2, glow = 0.92, pulse = 2 })
+	for _, cir in sig.circles do
+		for _, a in cir.atts do
+			a.Parent = gnd
+		end
+	end
+	-- voxels materialising on the floor: the world being written
 	type Vox = { p: BasePart, pos: Vector3, t0: number, life: number, s: number }
 	local voxels: { Vox } = {}
 	for i = 1, 12 do
@@ -2606,16 +3743,22 @@ A.Architect = function(c: Ctx)
 			s = 1,
 		}
 	end
+	-- voxels typed in the air (root space), and code tiles written under the walking feet (world)
+	type Typed = { p: BasePart, pos: Vector3, t0: number, s: number }
+	local typed: { Typed } = {}
+	for i = 1, 8 do
+		typed[i] = { p = Core.part(c, V(0.5, 0.5, 0.5), if i % 2 == 0 then WHITE else c.c1, NEON, 1), pos = Vector3.zero, t0 = -math.huge, s = 0.5 }
+	end
+	local typedN = 0
+	type Tile = { p: BasePart, cf: CFrame, t0: number }
+	local tiles: { Tile } = {}
+	for i = 1, 4 do
+		tiles[i] = { p = Core.part(c, V(1.7, 0.08, 1.7), c.c1, NEON, 1), cf = CFrame.identity, t0 = -math.huge }
+	end
+	local tileN = 0
 	local cursor = Core.part(c, V(0.3, 0.55, 0.06), WHITE)
-	local _, title = B.glyph(
-		c,
-		"404 // PAGE NOT FOUND",
-		c.c1,
-		V2(5.4, 0.6),
-		F.tech,
-		CF(0, c.topY + 2.3, 0),
-		Color3.fromRGB(0, 40, 20)
-	)
+	local TITLE = "404 // PAGE NOT FOUND"
+	local _, title = B.glyph(c, TITLE, c.c1, V2(5.4, 0.6), F.tech, CF(0, c.topY + 2.3, 0), Color3.fromRGB(0, 40, 20))
 	local torso = Core.att(c, c.torso)
 	Core.emit(torso, {
 		tex = T.spark,
@@ -2635,7 +3778,8 @@ A.Architect = function(c: Ctx)
 		life = nr(0.8, 1.2),
 		locked = true,
 	})
-	B.floorEmit(c, 9, {
+	local floorVol = Core.part(c, V(18, 0.1, 18), c.c1, SMOOTH, 1)
+	local floorSq = Core.emit(floorVol, {
 		tex = T.square,
 		color = cs(c.c1, WHITE),
 		size = ns(0.3, 0),
@@ -2644,8 +3788,9 @@ A.Architect = function(c: Ctx)
 		life = nr(1.6, 2.6),
 		speed = nr(1.5, 3),
 		rot = nr(0, 0),
+		shape = BOX,
 	})
-	Core.emit(Core.att(c, c.root, CF(0, c.groundY + 0.1, 0)), {
+	Core.emit(Core.att(c, gnd, CF(0, c.groundY + 0.1, 0)), {
 		tex = T.shock,
 		color = cs(c.c1),
 		size = ns(3, 22),
@@ -2655,8 +3800,19 @@ A.Architect = function(c: Ctx)
 		speed = nr(0.01, 0.01),
 		orient = PERP,
 	})
+	local floorShock = Core.emit(Core.att(c, gnd, CF(0, c.groundY + 0.14, 0)), {
+		tex = T.shock,
+		color = cs(WHITE, c.c1),
+		size = ns(1, 28),
+		transp = ns(0.05, 1),
+		rate = 0,
+		life = nr(1, 1),
+		speed = nr(0.01, 0.01),
+		orient = PERP,
+		bright = 3,
+	})
 	local rain = Core.volume(c, V(18, 1, 18), CF(0, c.topY + 12, 0))
-	Core.emit(rain, {
+	local rainE = Core.emit(rain, {
 		tex = T.square,
 		color = cs(WHITE, c.c1),
 		size = ns(0.22, 0.1),
@@ -2669,8 +3825,122 @@ A.Architect = function(c: Ctx)
 		rot = nr(0, 0),
 		shape = BOX,
 	})
-	B.rootLight(c, c.c1, 3.2, 24, { pulse = 2, amp = 1.5 })
-	Core.on(c, function(t, _, root)
+	-- hand / foot sparks (ride the animated limbs)
+	local pops: { [string]: ParticleEmitter } = {}
+	local TIPS: { [string]: string } = { R = "rhand", L = "lhand", FR = "rfoot", FL = "lfoot" }
+	for key, tip in TIPS do
+		local att = Core.tip(c, tip)
+		if att then
+			pops[key] = Core.emit(att, {
+				tex = T.spark,
+				color = cs(WHITE, c.c1),
+				size = ns(0.5, 0),
+				rate = 0,
+				life = nr(0.3, 0.6),
+				speed = nr(4, 9),
+				spread = V2(60, 60),
+				dir = Enum.NormalId.Bottom,
+				drag = 3,
+				bright = 2.5,
+			})
+		end
+	end
+	local rhandTip = Core.tip(c, "rhand")
+	local light = B.rootLight(c, c.c1, 3.2, 24)
+
+	-- marker reactions (handlers only set state / emit; positions are placed in the updater)
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	local function pop(key: string, n: number)
+		local e = pops[key]
+		if e then
+			e:Emit(n)
+		end
+	end
+	local pendingTyped: { string } = {}
+	local pendingTile: { string } = {}
+	local fixAtTip = false
+	local waveT = -math.huge
+	local broken = false -- "error" until "fix"
+	local faultPage = 0 -- page glitched by a pagefault (0 = none)
+	on("key", function(side: any)
+		local s = if side == "L" then "L" else "R"
+		table.insert(pendingTyped, s)
+		pop(s, 8)
+	end)
+	on("enter", function()
+		pop("R", 18)
+		floorSq:Emit(20)
+	end)
+	on("build", function()
+		waveT = os.clock()
+		floorShock:Emit(1)
+		floorSq:Emit(60)
+		pop("R", 20)
+	end)
+	on("error", function()
+		broken = true
+	end)
+	on("fix", function()
+		broken = false
+		faultPage = 0
+		fixAtTip = true
+		pop("R", 24)
+	end)
+	on("tile", function(side: any)
+		local s = if side == "L" then "L" else "R"
+		table.insert(pendingTile, s)
+		pop(if s == "L" then "FL" else "FR", 10)
+	end)
+	on("ascend", function()
+		floorShock:Emit(1)
+		rainE:Emit(60)
+	end)
+	on("impact", function()
+		floorShock:Emit(1)
+		floorSq:Emit(40)
+	end)
+
+	local faultT = 0
+	local lastBroken = false
+	local sphereK = 0
+	Core.on(c, function(t, dt, root)
+		local ground = root * CF(0, -c.lift, 0)
+		Core.put(gnd, ground)
+		Core.put(floorVol, ground * CF(0, c.groundY + 0.1, 0))
+		if sig.disc then
+			Core.put(sig.disc, ground * CF(0, c.groundY + 0.015, 0) * ANG(0, 0, math.pi / 2))
+		end
+		local eKey = Sync.env(bus, "key", 9)
+		local eEnter = Sync.env(bus, "enter", 4)
+		local eComp = Sync.env(bus, "compile", 1.4)
+		local eBuild = Sync.env(bus, "build", 2.5)
+		local eSweep = Sync.env(bus, "sweep", 1.6)
+		local eFix = Sync.env(bus, "fix", 5)
+		local eAsc = Sync.env(bus, "ascend", 2.5)
+		local eImp = Sync.env(bus, "impact", 3)
+		-- gliding: pages fault now and then, the body's pagefault reaction patches them
+		if Sync.get(bus, "move") > 0.6 and Sync.get(bus, "air") < 0.5 then
+			faultT -= dt
+			if faultT <= 0 then
+				faultT = 6 + rng:NextNumber() * 3
+				faultPage = rng:NextInteger(1, #pages)
+				Sync.emit(bus, "pagefault")
+			end
+		elseif faultT < 2 then
+			faultT = 2
+		end
+		-- the wireframe sphere: glows on compile / fix, flickers out while broken
+		local flick = broken and rng:NextNumber() < 0.6
+		local glow = math.max(eComp * 0.6, eFix * 0.8, eEnter * 0.3)
+		local sk = if flick then -1 else math.floor(glow * 40 + 0.5) / 40
+		if sk ~= sphereK then -- only touch the 120 beams when the look changes
+			sphereK = sk
+			for _, ring in sphere do
+				B.setBeamsTransparency(ring.beams, if flick then 1 else ring.tr * (1 - sk))
+			end
+		end
 		local rot = t * 0.15
 		for i, n in nodes do
 			local k = (i - 1) % 12
@@ -2678,22 +3948,57 @@ A.Architect = function(c: Ctx)
 			local rr = math.sqrt(R * R - y * y)
 			local a = rot + k * math.pi / 6
 			Core.put(n, root * CF(S + V(math.cos(a) * rr, y, -math.sin(a) * rr)) * ANG(t, t * 0.7, 0))
+			n.Transparency = if broken and rng:NextNumber() < 0.5 then 1 else 0
 		end
+		-- pages: radius kick + spin on the sweep, flash on enter, a faulted page glitches
+		local kick = eSweep * 2.6
+		local pageTr = 0.5 - eEnter * 0.4 - eFix * 0.2
 		for i, pg in pages do
-			local a = pg.a + t * 0.18
+			local a = pg.a + t * 0.18 + eSweep * 0.9
+			local jit = if i == faultPage then CF(jitter(rng, 0.25)) else CFrame.identity
 			local cf = root
-				* outward(a, pg.r, pg.y + math.sin(t * 0.8 + i) * 0.35)
+				* outward(a, pg.r + kick, pg.y + math.sin(t * 0.8 + i) * 0.35)
 				* ANG(0, math.sin(t * 0.5 + i) * 0.5, math.sin(t * 0.6 + i) * 0.08)
+				* jit
 			Core.put(pg.p, cf)
 			Core.put(pg.bar, cf * CF(0, 1.1, 0))
+			pg.p.Transparency = if i == faultPage and rng:NextNumber() < 0.4 then 1 else pageTr
 		end
+		-- god-rays + pillar flare on compile / ascend
+		local rayK = math.max(eComp, eAsc * 0.7)
 		for k, a in skyAtts do
 			local ang = (k - 1) / 7 * TAU + t * 0.08
-			a.Position = V(math.cos(ang) * 12, 70, math.sin(ang) * 12)
+			a.Position = V(math.cos(ang) * 12 * (1 - rayK * 0.4), 70, math.sin(ang) * 12 * (1 - rayK * 0.4))
+			rays[k].Width0 = 6 * (1 + rayK * 0.8)
+			rays[k].Brightness = 2 + rayK * 4
 		end
-		for _, v in voxels do
+		for i, b in pillar do
+			local w = pillarW[i] * (1 + rayK * 0.9)
+			b.Width0 = w
+			b.Width1 = w
+		end
+		rainE.Rate = 40 + eComp * 80
+		-- floor grid flashes on build / impact
+		local gk = math.max(eBuild, eImp * 0.7)
+		local gw = 0.07 * (1 + gk * 3)
+		for _, b in grid do
+			b.Width0 = gw
+			b.Width1 = gw
+		end
+		-- floor voxels (+ the build wave: every voxel respawns on an expanding ring)
+		local waveAge = os.clock() - waveT
+		for i, v in voxels do
 			local age = t - v.t0
-			if age > v.life then
+			if waveAge >= 0 and waveAge < 0.05 then
+				-- schedule: voxel i erupts when the wave front reaches its radius
+				v.t0 = t + (i - 1) / #voxels * 0.5
+				v.life = 1.4
+				v.s = 0.7 + rng:NextNumber() * 0.9
+				local a = rng:NextNumber() * TAU
+				local r = 2.5 + (i - 1) / #voxels * 7
+				v.pos = V(math.cos(a) * r, c.groundY + v.s / 2, math.sin(a) * r)
+				age = t - v.t0
+			elseif age > v.life then
 				v.t0 = t
 				v.life = 1.2 + rng:NextNumber() * 0.8
 				v.s = 0.5 + rng:NextNumber() * 0.8
@@ -2702,24 +4007,109 @@ A.Architect = function(c: Ctx)
 				v.pos = V(math.cos(a) * r, c.groundY + v.s / 2, math.sin(a) * r)
 				age = 0
 			end
+			if age < 0 then
+				v.p.Transparency = 1
+				continue
+			end
 			local f = age / math.max(v.life, 0.01)
 			local grow = smooth01(f / 0.2)
-			v.p.Size = V(v.s, v.s * grow, v.s)
+			v.p.Size = V(v.s, math.max(v.s * grow, 0.02), v.s)
 			v.p.Transparency = 0.15 + 0.85 * smooth01((f - 0.6) / 0.4)
-			Core.put(v.p, root * CF(v.pos + V(0, v.s * (grow - 1) / 2 + f * 0.6, 0)))
+			Core.put(v.p, ground * CF(v.pos + V(0, v.s * (grow - 1) / 2 + f * 0.6, 0)))
 		end
+		-- typed voxels: spawned in front of the typing hand, drift up and fade; enter bursts them
+		while #pendingTyped > 0 do
+			local s = table.remove(pendingTyped, 1) :: string
+			typedN = typedN % #typed + 1
+			local ty = typed[typedN]
+			ty.t0 = t
+			ty.s = 0.35 + rng:NextNumber() * 0.3
+			local sx = if s == "L" then -1 else 1
+			ty.pos = V(sx * (0.6 + rng:NextNumber() * 1.6), c.chestY + 0.3 + rng:NextNumber() * 1.4, -2.2 - rng:NextNumber())
+		end
+		if fixAtTip and rhandTip then
+			fixAtTip = false
+			typedN = typedN % #typed + 1
+			local ty = typed[typedN]
+			ty.t0 = t
+			ty.s = 0.7
+			ty.pos = root:PointToObjectSpace(rhandTip.WorldPosition)
+		end
+		local sEnter = Sync.since(bus, "enter")
+		for _, ty in typed do
+			local age = t - ty.t0
+			if age > 2.2 then
+				if ty.p.Transparency < 1 then
+					ty.p.Transparency = 1
+				end
+				continue
+			end
+			local burst = if sEnter < age then smooth01(sEnter / 0.35) else 0
+			local s = ty.s * smooth01(age / 0.12) * (1 + burst * 1.5)
+			ty.p.Size = V(s, s, s)
+			ty.p.Transparency = math.clamp(0.1 + age / 2.2 * 0.9 + burst, 0, 1)
+			Core.put(ty.p, root * CF(ty.pos + V(0, age * 0.5 + burst * 1.5, 0)) * ANG(age * 2, age * 3, 0))
+		end
+		-- code tiles under the air-walking feet (world space, stay where they were written)
+		while #pendingTile > 0 do
+			local s = table.remove(pendingTile, 1) :: string
+			local foot = Core.bodyPart(c.char, if s == "L" then "Left Leg" else "Right Leg", if s == "L" then "LeftFoot" else "RightFoot")
+			if foot then
+				tileN = tileN % #tiles + 1
+				local tl = tiles[tileN]
+				tl.t0 = t
+				local fp = foot.CFrame * V(0, -foot.Size.Y / 2 - 0.08, 0)
+				tl.cf = CF(fp) * root.Rotation
+			end
+		end
+		for _, tl in tiles do
+			local age = t - tl.t0
+			if age > 0.7 then
+				if tl.p.Transparency < 1 then
+					tl.p.Transparency = 1
+				end
+				continue
+			end
+			local k = smooth01(age / 0.08)
+			tl.p.Size = V(1.7 * (0.6 + 0.4 * k), 0.08, 1.7 * (0.6 + 0.4 * k))
+			tl.p.Transparency = 0.15 + 0.85 * (age / 0.7)
+			Core.put(tl.p, tl.cf)
+		end
+		-- cursor + title
 		Core.put(cursor, root * CF(2.95, c.topY + 2.3, 0))
-		cursor.Transparency = if (t % 1) < 0.5 then 0 else 1
-		title.TextTransparency = if rng:NextNumber() < 0.03 then 0.7 else 0
+		cursor.Transparency = if eKey > 0.2 or eFix > 0.2 or (t % 1) < 0.5 then 0 else 1
+		if broken ~= lastBroken then
+			lastBroken = broken
+			title.Text = if broken then "ERROR 404 // REALITY NOT FOUND" else TITLE
+			title.TextColor3 = if broken then Color3.fromRGB(255, 60, 60) else c.c1
+		end
+		local sE = Sync.since(bus, "enter")
+		title.TextTransparency = if broken
+			then (if rng:NextNumber() < 0.3 then 0.8 else 0)
+			elseif sE < 0.15 then (if rng:NextNumber() < 0.5 then 0.9 else 0)
+			elseif rng:NextNumber() < 0.03 then 0.7
+			else 0
+		light.Brightness = 3.2 + Core.pulse(t, 2) * 1.5 + eComp * 4 + eBuild * 3 + eFix * 2 + eKey * 0.6
+		light.Range = 24 + eComp * 10
 	end)
 end
 
 -- black censor bars orbiting, red classified stamps, reality tearing
 -- parts ~70, emitters 6
+-- [REDACTED]: Synced to the Blender animation (tools/blender/anim/auras/Redacted.py, levitating
+-- set, lift 2 studs). Idle markers (6 s loop): snap L/R/C (head snaps -> face bar flash, censor
+-- reshuffle), stamp R/L (CLASSIFIED stamp slams in at that hand + hand sparks + seal flash),
+-- cut x4 (frame cuts -> clone shove + glitch burst), grab (red seam between the hands), tear
+-- (every reality tear rips open + chest shockwave + hand bursts), seal (tears snap shut, every
+-- stamp slams [REDACTED], ground shock). Walk: blink R/L (afterimage left behind). Reactions:
+-- launch (jump), slam (land), breach (emitted HERE every 3.5-6 s while moving) -> twitch x3.
+-- The floor seal / disc / ring / smoke / tears live on the real ground under the hovering body.
 A.Redacted = function(c: Ctx)
 	local rng = c.rng
+	local bus = c.bus
 	local red = c.c2
 	local ink = Color3.fromRGB(4, 4, 4)
+	local real = c.realRoot
 	type Bar = { p: BasePart, edge: BasePart, a: number, r: number, y: number, w: number, tilt: number }
 	local bars: { Bar } = {}
 	local function barY(): number
@@ -2747,11 +4137,12 @@ A.Redacted = function(c: Ctx)
 		local sg = Core.surface(skyBar, face, 30)
 		Core.label(sg, "[ REDACTED ]", red, F.tech, UDim2.fromScale(0.05, 0.15), UDim2.fromScale(0.9, 0.7))
 	end
-	type Stamp = { att: Attachment, gui: BillboardGui, lbl: TextLabel, stroke: UIStroke, t0: number }
+	type Stamp = { att: Attachment, gui: BillboardGui, lbl: TextLabel, stroke: UIStroke, t0: number, big: number }
 	local stamps: { Stamp } = {}
 	local words = { "CLASSIFIED", "[REDACTED]", "TOP SECRET", "EYES ONLY", "DENIED", "LEVEL 5" }
 	local function relocate(s: Stamp, t: number)
 		s.t0 = t
+		s.big = 1
 		local a = rng:NextNumber() * TAU
 		local r = 3 + rng:NextNumber() * 1.5
 		s.att.Position = V(math.cos(a) * r, c.chestY + (rng:NextNumber() - 0.3) * 3, math.sin(a) * r)
@@ -2766,11 +4157,25 @@ A.Redacted = function(c: Ctx)
 		stroke.Thickness = 4
 		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		stroke.Parent = lbl
-		local s: Stamp = { att = att, gui = gui, lbl = lbl, stroke = stroke, t0 = 0 }
+		local s: Stamp = { att = att, gui = gui, lbl = lbl, stroke = stroke, t0 = 0, big = 1 }
 		relocate(s, os.clock() - i * 0.7)
 		stamps[i] = s
 	end
-	-- reality tears: black core polyline over a wider red glowing edge
+	-- the oldest stamp is re-used for a synced slam (at a hand, or around the body)
+	local function slamStamp(pos: Vector3, word: string, big: number)
+		local best = stamps[1]
+		for _, s in stamps do
+			if s.t0 < best.t0 then
+				best = s
+			end
+		end
+		best.t0 = os.clock()
+		best.big = big
+		best.att.Position = pos
+		best.lbl.Text = word
+		best.lbl.Rotation = (rng:NextNumber() - 0.5) * 24
+	end
+	-- reality tears: black core polyline over a wider red glowing edge (on the real ground)
 	type Tear = { core: B.Poly, edge: B.Poly, w: number, off: number, base: { Vector3 } }
 	local tears: { Tear } = {}
 	for k = 1, 8 do
@@ -2786,8 +4191,8 @@ A.Redacted = function(c: Ctx)
 			table.insert(pts, V(math.cos(a) * r + sway, y0 + j / 6 * h, math.sin(a) * r + sway * 0.5))
 		end
 		tears[k] = {
-			edge = B.poly(c, pts, red, w, { segs = 1, bright = 3 }),
-			core = B.poly(c, pts, BLACK, w * 0.6, { segs = 1, light = 0, zoff = 0.05 }),
+			edge = B.poly(c, pts, red, w, { segs = 1, bright = 3 }, real),
+			core = B.poly(c, pts, BLACK, w * 0.6, { segs = 1, light = 0, zoff = 0.05 }, real),
 			w = w,
 			off = rng:NextNumber() * 4,
 			base = pts,
@@ -2824,11 +4229,29 @@ A.Redacted = function(c: Ctx)
 		color = red,
 		spin = 0.4,
 		anchor = function()
-			return CF(0, g + 0.06, 0)
+			return CF(0, g + 0.06 - c.lift, 0)
 		end,
 	})
-	B.sigil(c, { radius = 8.8, color = red, rings = 3, glow = nil, pulse = 1.1 })
-	local ox, burstUntil = 0, 0
+	-- floor seal (B.sigil layout, but on the real root so it stays on the ground)
+	local seal: { B.Circle } = {}
+	local sealTr = { 0.05, 0.3, 0.3 }
+	for k = 1, 3 do
+		local f = 1 - (k - 1) / 2 * 0.55
+		seal[k] = B.circle(c, {
+			radius = 8.8 * f,
+			color = red,
+			width = if k == 1 then 0.19 else 0.11,
+			at = CF(0, g + 0.04 + k * 0.004, 0),
+			tr = sealTr[k],
+			n = if 8.8 * f > 4 then 10 else 8,
+			parent = real,
+		})
+	end
+	-- ground shock ring (slam / seal / launch) and chest shockwave shell (tear), re-used
+	local shock = Core.part(c, V(0.05, 2, 2), red, NEON, 1, CYL)
+	local shell = Core.part(c, V(2, 2, 2), red, FF, 1, BALL)
+	local ox, oz, burstUntil = 0, 0, 0
+	local shoveAmp, shoveSign = 0.4, 1
 	B.clones(c, {
 		set = "lite",
 		color = BLACK,
@@ -2836,10 +4259,10 @@ A.Redacted = function(c: Ctx)
 		tr = 0.45,
 		scale = 1.02,
 		map = function(cf, root)
-			if ox == 0 then
+			if ox == 0 and oz == 0 then
 				return cf
 			end
-			return root * CF(ox, 0, 0) * root:ToObjectSpace(cf)
+			return root * CF(ox, 0, oz) * root:ToObjectSpace(cf)
 		end,
 	})
 	local sky = Core.att(c, c.root, CF(0, c.topY + 8, 0))
@@ -2856,7 +4279,7 @@ A.Redacted = function(c: Ctx)
 		light = 0,
 	})
 	local torso = Core.att(c, c.torso)
-	Core.emit(torso, {
+	local sparks = Core.emit(torso, {
 		tex = T.fireSpark,
 		color = cs(red, WHITE),
 		size = ns(0.4, 0),
@@ -2866,7 +4289,7 @@ A.Redacted = function(c: Ctx)
 		spread = V2(180, 180),
 		bright = 2.5,
 	})
-	Core.emit(torso, {
+	local vortex = Core.emit(torso, {
 		tex = T.vortex,
 		color = cs(red),
 		size = ns(8, 12),
@@ -2876,7 +4299,8 @@ A.Redacted = function(c: Ctx)
 		rotSpeed = nr(100, 160),
 		locked = true,
 	})
-	B.floorEmit(c, 7, {
+	local smokeVol = Core.volume(c, V(14, 0.1, 14), CF(0, g + 0.1, 0), real)
+	local smoke = Core.emit(smokeVol, {
 		tex = T.smoke,
 		color = cs(BLACK),
 		size = ns(3, 7),
@@ -2886,9 +4310,10 @@ A.Redacted = function(c: Ctx)
 		speed = nr(0.5, 1.2),
 		light = 0,
 		rotSpeed = nr(-30, 30),
+		shape = BOX,
 	})
 	local glitchVol = Core.volume(c, V(12, 9, 12), CF(0, c.chestY + 1.5, 0))
-	Core.emit(glitchVol, {
+	local glitch = Core.emit(glitchVol, {
 		tex = T.square,
 		color = cs(red, WHITE),
 		size = ns(0.45, 0.15),
@@ -2899,32 +4324,150 @@ A.Redacted = function(c: Ctx)
 		rot = nr(0, 0),
 		shape = BOX,
 	})
+	-- body-bound pieces: hand spark bursts + the red seam torn open between the hands
+	local hands: { [string]: Attachment } = {}
+	local handFx: { [string]: ParticleEmitter } = {}
+	local tipOf: { [string]: string } = { R = "rhand", L = "lhand" }
+	for side: string, tip: string in tipOf do
+		local att = Core.tip(c, tip) or Core.att(c, c.torso)
+		hands[side] = att
+		handFx[side] = Core.emit(att, {
+			tex = T.fireSpark,
+			color = cs(WHITE, red),
+			size = ns(0.5, 0),
+			rate = 0,
+			life = nr(0.3, 0.7),
+			speed = nr(8, 16),
+			spread = V2(180, 180),
+			drag = 4,
+			bright = 4,
+		})
+	end
+	local seam = Core.beam(c, hands.R, hands.L, red, 0, { color2 = WHITE, segs = 6, bright = 4 })
+	local seamCore = Core.beam(c, hands.R, hands.L, BLACK, 0, { segs = 6, light = 0, zoff = 0.05 })
 	local light = B.rootLight(c, red, 3, 22)
+
 	local nextC = 0
-	Core.on(c, function(t, _, root)
-		if rng:NextNumber() < 0.02 then
-			burstUntil = t + 0.12
+	local function on(ev: string, fn: (any) -> ())
+		table.insert(c.cleanups, Sync.on(bus, ev, fn))
+	end
+	local function shove(amp: number, dur: number)
+		burstUntil = os.clock() + dur
+		shoveAmp = amp
+		shoveSign = if rng:NextNumber() < 0.5 then -1 else 1
+		ox = shoveSign * amp
+		oz = 0
+	end
+	on("snap", function()
+		nextC = 0 -- censor frames reshuffle on every head snap
+		glitch:Emit(10)
+	end)
+	on("stamp", function(side: any)
+		local att = hands[if side == "L" then "L" else "R"]
+		local p = c.root.CFrame:PointToObjectSpace(att.WorldPosition)
+		slamStamp(p + V(0, 0.3, 0), if side == "L" then "TOP SECRET" else "CLASSIFIED", 1.4)
+		handFx[if side == "L" then "L" else "R"]:Emit(36)
+		glitch:Emit(16)
+	end)
+	on("cut", function()
+		shove(0.9, 0.09)
+		glitch:Emit(30)
+	end)
+	on("tear", function()
+		sparks:Emit(70)
+		vortex:Emit(3)
+		handFx.R:Emit(50)
+		handFx.L:Emit(50)
+		glitch:Emit(40)
+		shove(0.5, 0.12)
+	end)
+	on("seal", function()
+		for i, s in stamps do
+			local a = (i - 1) / #stamps * TAU + rng:NextNumber() * 0.5
+			s.t0 = os.clock() - (i - 1) * 0.03 -- tiny cascade
+			s.big = 1.2
+			s.att.Position = V(math.cos(a) * 3.6, c.chestY + (i % 2) * 1.4 - 0.4, math.sin(a) * 3.6)
+			s.lbl.Text = "[REDACTED]"
+			s.lbl.Rotation = (rng:NextNumber() - 0.5) * 24
 		end
-		ox = if t < burstUntil then (rng:NextNumber() - 0.5) * 0.8 else 0
+		smoke:Emit(6)
+	end)
+	on("blink", function(side: any)
+		oz = if side == "L" then 0.5 else 0.9
+		ox = 0
+		burstUntil = os.clock() + 0.1
+		glitch:Emit(18)
+	end)
+	on("twitch", function()
+		shove(1.1, 0.1)
+		glitch:Emit(26)
+		nextC = 0
+	end)
+	on("launch", function()
+		glitch:Emit(20)
+		smoke:Emit(4)
+	end)
+	on("slam", function()
+		slamStamp(V(0, c.chestY - 1.5, -2.6), "DENIED", 1.6)
+		smoke:Emit(8)
+		sparks:Emit(30)
+	end)
+	local nextBreach = os.clock() + 3
+
+	Core.on(c, function(t, _, root)
+		-- breach: containment fails every 3.5-6 s while moving -> the body's breach reaction
+		if Sync.get(bus, "move") > 0.5 and Sync.get(bus, "air") < 0.5 then
+			if t >= nextBreach then
+				nextBreach = t + 3.5 + rng:NextNumber() * 2.5
+				Sync.emit(bus, "breach")
+			end
+		elseif nextBreach - t < 1.5 then
+			nextBreach = t + 1.5
+		end
+		if rng:NextNumber() < 0.006 then
+			shove(0.4, 0.12) -- rare ambient flicker between the synced cuts
+		end
+		if t >= burstUntil then
+			ox, oz = 0, 0
+		elseif oz == 0 then
+			ox = shoveSign * shoveAmp * (0.6 + rng:NextNumber() * 0.6) -- frame-cut afterimage judder
+		end
+		local eSnap = math.max(Sync.env(bus, "snap", 9), Sync.env(bus, "blink", 12), Sync.env(bus, "twitch", 10))
+		local eStamp = Sync.env(bus, "stamp", 5)
+		local eTear = Sync.env(bus, "tear", 3)
+		local eSeal = Sync.env(bus, "seal", 4)
+		local eGround = math.max(Sync.env(bus, "slam", 4), eSeal, Sync.env(bus, "launch", 6) * 0.6)
+		local sTear, sSeal = Sync.since(bus, "tear"), Sync.since(bus, "seal")
+		-- open while the hands hold reality apart (tear -> seal), snapped shut on the seal
+		local torn = if sTear < sSeal and sTear < 3 then math.clamp(sTear / 0.12, 0, 1)
+			else math.exp(-sSeal * 16)
+		local sGrab = Sync.since(bus, "grab")
+		local seamOn = if sGrab < sTear and sGrab < 1.2 then math.clamp(sGrab / 0.2, 0, 1) else 0
 		for i, b in bars do
 			if rng:NextNumber() < 0.003 then
 				b.y = barY()
 			end
-			local a = b.a + t * b.w
+			local a = b.a + t * b.w * (1 + eTear * 3)
 			local cf = root
-				* outward(a, b.r, b.y + math.sin(t * 1.3 + i) * 0.25)
+				* outward(a, b.r + eTear * 2.5, b.y + math.sin(t * 1.3 + i) * 0.25)
 				* ANG(0, 0, b.tilt + math.sin(t * 0.7 + i) * 0.1)
 			Core.put(b.p, cf)
 			Core.put(b.edge, cf * CF(0, -0.31, 0))
 		end
 		local hcf = c.head.CFrame * CF(0, 0.1, -hsz.Z / 2 - 0.04)
+		if eSnap > 0.02 then
+			hcf *= CF(jitter(rng, eSnap * 0.12))
+		end
+		faceBar.Size = V(hw * (1 + eSnap * 0.6 + eSeal * 0.3), 0.28 * (1 + eSnap * 1.3 + eSeal * 0.8), 0.06)
+		faceEdge.Size = V(faceBar.Size.X, 0.03 + eSnap * 0.05, 0.07)
 		Core.put(faceBar, hcf)
-		Core.put(faceEdge, hcf * CF(0, -0.155, 0))
+		Core.put(faceEdge, hcf * CF(0, -faceBar.Size.Y / 2 - 0.015, 0))
 		local skyPos = (root * CF(0, c.topY + 5 + math.sin(t * 0.7) * 0.3, 0)).Position
 		local cam = camPos()
 		local flatCam = V(cam.X, skyPos.Y, cam.Z)
 		local scf = if (flatCam - skyPos).Magnitude > 0.1 then CFrame.lookAt(skyPos, flatCam) else CF(skyPos)
-		scf *= ANG(0, 0, math.sin(t * 0.9) * 0.06) * CF(jitter(rng, if t < burstUntil then 0.6 else 0))
+		local shake = (if t < burstUntil then 0.6 else 0) + eTear * 0.8 + eStamp * 0.25
+		scf *= ANG(0, 0, math.sin(t * 0.9) * 0.06) * CF(jitter(rng, shake))
 		Core.put(skyBar, scf)
 		Core.put(skyEdge, scf) -- thinner than the bar: only the rim shows, on both faces
 		for _, s in stamps do
@@ -2933,7 +4476,7 @@ A.Redacted = function(c: Ctx)
 				relocate(s, t)
 				age = 0
 			end
-			local sc = if age < 0.12 then 2.2 - age / 0.12 * 1.2 else 1
+			local sc = (if age < 0.12 then 2.2 - age / 0.12 * 1.2 else 1) * s.big
 			local fade = math.clamp((age - 2.2) / 0.4, 0, 1)
 			local appear = math.clamp(age / 0.12, 0, 1)
 			s.gui.Size = UDim2.new(3.2 * sc, 0, 0.8 * sc, 0)
@@ -2943,17 +4486,18 @@ A.Redacted = function(c: Ctx)
 		end
 		for _, tr in tears do
 			local ph = ((t + tr.off) % 4) / 4
-			local open = math.sin(math.clamp(ph / 0.7, 0, 1) * math.pi)
-			if ph > 0.95 and rng:NextNumber() < 0.2 then
+			local open = math.max(0.55 * math.sin(math.clamp(ph / 0.7, 0, 1) * math.pi), torn)
+			if (ph > 0.95 and rng:NextNumber() < 0.2) or (torn > 0.5 and rng:NextNumber() < 0.15) then
+				local amp = 0.7 + torn * 0.6
 				for j = 2, #tr.base - 1 do
-					local jit = V((rng:NextNumber() - 0.5) * 0.7, 0, (rng:NextNumber() - 0.5) * 0.7)
+					local jit = V((rng:NextNumber() - 0.5) * amp, 0, (rng:NextNumber() - 0.5) * amp)
 					tr.core.atts[j].Position = tr.base[j] + jit
 					tr.edge.atts[j].Position = tr.base[j] + jit
 				end
 			end
 			for j, bm in tr.core.beams do
 				local env = math.sin((j - 0.5) / #tr.core.beams * math.pi)
-				local wc = tr.w * 0.6 * open * env
+				local wc = tr.w * 0.6 * open * env * (1 + eTear * 0.5)
 				bm.Width0 = wc
 				bm.Width1 = wc
 				local eb = tr.edge.beams[j]
@@ -2961,6 +4505,10 @@ A.Redacted = function(c: Ctx)
 				eb.Width1 = eb.Width0
 			end
 		end
+		-- the seam the hands dig into (grab -> tear), flickering; flashes wide on the tear
+		local seamW = seamOn * (0.25 + rng:NextNumber() * 0.2) + eTear * 1.4 * math.exp(-sTear * 6)
+		seam.Width0, seam.Width1 = seamW, seamW
+		seamCore.Width0, seamCore.Width1 = seamW * 0.45, seamW * 0.45
 		if t >= nextC then
 			nextC = t + 0.18
 			for _, ce in cens do
@@ -2975,9 +4523,38 @@ A.Redacted = function(c: Ctx)
 			local a = ce.a - t * 0.35
 			ce.att.Position = V(math.cos(a) * 4.2, ce.y + math.sin(t + i) * 0.2, math.sin(a) * 4.2)
 		end
-		Core.put(disc, root * CF(0, g + 0.02, 0) * FLAT)
-		Core.put(stampFloor, root * CF(0, g + 0.06, 0) * ANG(0, t * 0.2, 0))
-		light.Brightness = if t < burstUntil then 7 else 2.6 + math.noise(t * 3, 2) * 1.4
+		local ground = root * CF(0, g - c.lift, 0)
+		Core.put(disc, ground * CF(0, 0.02, 0) * FLAT)
+		Core.put(stampFloor, ground * CF(0, 0.06, 0) * ANG(0, t * 0.2, 0))
+		local floorFlash = math.max(eStamp, eGround)
+		fl.TextTransparency = 0.2 - 0.2 * floorFlash
+		local pulse = Core.pulse(t, 1.1)
+		for k, cir in seal do
+			B.setBeamsTransparency(cir.beams, sealTr[k] + pulse * 0.35 * (1 - floorFlash) - floorFlash * 0.3)
+		end
+		-- ground shock ring: expands from the seal on slam / seal / launch
+		local sG = math.min(Sync.since(bus, "slam"), sSeal, Sync.since(bus, "launch"))
+		if sG < 0.5 then
+			local k = sG / 0.5
+			local d = 2 + smooth01(k) * 16
+			shock.Size = V(0.05, d, d)
+			shock.Transparency = 0.1 + k * 0.9
+			Core.put(shock, ground * CF(0, 0.1, 0) * FLAT)
+		elseif shock.Transparency < 1 then
+			shock.Transparency = 1
+		end
+		-- chest shockwave shell on the tear
+		if sTear < 0.55 then
+			local k = sTear / 0.55
+			local d = 2 + smooth01(k) * 14
+			shell.Size = V(d, d, d)
+			shell.Transparency = 0.2 + k * 0.8
+			Core.put(shell, c.torso.CFrame)
+		elseif shell.Transparency < 1 then
+			shell.Transparency = 1
+		end
+		local base = if t < burstUntil then 7 else 2.6 + math.noise(t * 3, 2) * 1.4
+		light.Brightness = base + eTear * 7 + eStamp * 3 + eGround * 3
 	end)
 end
 
