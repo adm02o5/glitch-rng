@@ -14,6 +14,7 @@ local Players = game:GetService("Players")
 
 local Client = script.Parent.Parent
 local Kit = require(Client.UI.Kit)
+local Ctx = require(Client.Ctx)
 local U = require(script.Parent.Util)
 local Fx = require(script.Parent.Fx)
 
@@ -790,15 +791,17 @@ function Scenes.NullPointer(S: any)
 	end
 	S:sfx("Riser", 0.5, 0.6)
 	local lastFlip = -1
+	-- reduced flashing: the strobe stays under 3 Hz and never goes fully opaque
+	local calm = Ctx.Calm()
 	S:phase(2.6, function(k: number, e: number)
 		cc.Saturation = -1
-		cc.Contrast = lerp(0.2, 1, k)
+		cc.Contrast = lerp(0.2, if calm then 0.5 else 1, k)
 		dim.BackgroundTransparency = 1
-		local rate = lerp(3, 14, k ^ 1.5)
+		local rate = if calm then lerp(1, 2.5, k) else lerp(3, 14, k ^ 1.5)
 		local flip = math.floor(e * rate)
 		local inv = flip % 2 == 1
 		local strobe = k > 0.15
-		white.BackgroundTransparency = if strobe then 0 else 1 - k * 4
+		white.BackgroundTransparency = if strobe then (if calm then 0.55 else 0) else 1 - k * 4
 		white.BackgroundColor3 = if inv then BLACK else WHITE
 		silB.vp.Visible = strobe and not inv
 		silW.vp.Visible = strobe and inv

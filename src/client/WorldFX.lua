@@ -16,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Ctx = require(script.Parent.Ctx)
 
 local WorldFX = {}
 
@@ -627,6 +628,11 @@ local function emitter(parent: BasePart, s: EmitterSpec): ParticleEmitter
 end
 
 local function addFlash(color: Color3, dur: number, strength: number)
+	local s = Ctx.Data.Settings
+	if s and s.Calm == true then -- reduced flashing (photosensitivity option)
+		strength *= 0.3
+		dur *= 1.5
+	end
 	table.insert(flashes, { color = color, t0 = os.clock(), dur = math.max(dur, 0.05), strength = strength })
 end
 

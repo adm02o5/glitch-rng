@@ -52,6 +52,16 @@ function Ctx.Setting(k: string, v: any)
 	Ctx.Changed:Fire(Ctx.Data)
 end
 
+-- Reduced flashing (photosensitivity option): the saved setting, or the choice made on the
+-- boot warning screen before the profile arrived.
+function Ctx.Calm(): boolean
+	local s = Ctx.Data.Settings
+	if s and s.Calm ~= nil then
+		return s.Calm == true
+	end
+	return game:GetService("Players").LocalPlayer:GetAttribute("CalmPick") == true
+end
+
 -- Toast is assigned by Hud at start: Ctx.Toast(text, color?)
 Ctx.Toast = function(_text: string, _color: Color3?) end
 

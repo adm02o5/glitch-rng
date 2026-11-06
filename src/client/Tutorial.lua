@@ -1944,8 +1944,8 @@ end
 function Tutorial.Auto()
 	task.spawn(function()
 		local t0 = os.clock()
-		while not (player:GetAttribute("Loaded") and Ctx.Data.Settings) do
-			if os.clock() - t0 > 90 then
+		while not (player:GetAttribute("Loaded") and Ctx.Data.Settings) or player:GetAttribute("Booting") == true do
+			if os.clock() - t0 > 900 then
 				return
 			end
 			task.wait(0.25)

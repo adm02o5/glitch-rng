@@ -11,6 +11,7 @@ local Players = game:GetService("Players")
 
 local Client = script.Parent.Parent
 local Kit = require(Client.UI.Kit)
+local Ctx = require(Client.Ctx)
 local U = require(script.Parent.Util)
 local RNG = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RNG"))
 
@@ -109,7 +110,12 @@ function Fx.install(Session: any)
 	end
 
 	-- Non-blocking flash: snaps to `peak` opacity, fades out over `dur`, removes itself.
+	-- Reduced flashing: a third of the opacity, spread over a longer, gentler fade.
 	function Session.flash(S: any, color: Color3, peak: number, dur: number, z: number?)
+		if Ctx.Calm() then
+			peak = math.min(peak * 0.3, 0.25)
+			dur = math.max(dur * 1.6, 0.35)
+		end
 		local f = S:fill(color, z or 170, 1 - peak)
 		local t0 = os.clock()
 		S:loop(function(now: number)

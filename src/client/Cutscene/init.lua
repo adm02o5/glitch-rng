@@ -17,6 +17,7 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Session = require(script.Session)
 local Fx = require(script.Fx)
 local U = require(script.Util)
+local Ctx = require(script.Parent.Ctx)
 Fx.install(Session)
 
 local Tiers = require(script.Tiers) :: { (any) -> () }
@@ -52,7 +53,14 @@ local playing = false
 
 -- Quick flash out used after a skip or an error: hides the cut, restores everything, fades away.
 local function flashOut(S: any)
-	local white = S:frame({ Name = "SkipFlash", BackgroundColor3 = U.WHITE, BackgroundTransparency = 1, ZIndex = 200 })
+	-- reduced flashing: cut through black instead of a white flash
+	local calm = Ctx.Calm()
+	local white = S:frame({
+		Name = "SkipFlash",
+		BackgroundColor3 = if calm then Color3.new(0, 0, 0) else U.WHITE,
+		BackgroundTransparency = 1,
+		ZIndex = 200,
+	})
 	S:raw(0.08, function(k: number)
 		white.BackgroundTransparency = 1 - k
 	end)

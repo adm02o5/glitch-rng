@@ -1,5 +1,5 @@
 --!strict
--- SETTINGS: volumes, other players' auras, cutscene skipping, tutorial replay.
+-- SETTINGS: volumes, other players' auras, cutscene skipping, reduced flashing, tutorial replay.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -17,7 +17,7 @@ local new = Kit.new
 local SKIP_NAMES = { [0] = "NONE", [1] = "RARE", [2] = "EPIC", [3] = "LEGENDARY", [4] = "CORRUPTED" }
 
 return function()
-	local win = Kit.window("SETTINGS", "// local configuration", Vector2.new(560, 500), P.Dim)
+	local win = Kit.window("SETTINGS", "// local configuration", Vector2.new(560, 580), P.Dim)
 	local list = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Parent = win.body })
 	new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list })
 
@@ -72,7 +72,22 @@ return function()
 			render()
 		end)
 
-		local r5 = row(5, "TUTORIAL", "the guided tour of the city")
+		local r5 = row(5, "REDUCE FLASHING", "photosensitivity: softer flashes and strobes")
+		local calm = s.Calm == true
+		Kit.button({
+			text = if calm then "ON" else "OFF",
+			icon = if calm then "◉" else "○",
+			size = UDim2.new(0.5, 0, 0, 42),
+			position = UDim2.new(0.5, 0, 0, 4),
+			color = if calm then P.Lime else P.Dim,
+			textSize = 15,
+			parent = r5,
+		}, function()
+			Ctx.Setting("Calm", not calm)
+			render()
+		end)
+
+		local r6 = row(6, "TUTORIAL", "the guided tour of the city")
 		local replay = Kit.button({
 			text = if Tutorial.Running then "RUNNING..." else "REPLAY TUTORIAL",
 			icon = "▶",
@@ -80,7 +95,7 @@ return function()
 			position = UDim2.new(0.5, 0, 0, 4),
 			color = P.Cyan,
 			textSize = 15,
-			parent = r5,
+			parent = r6,
 		}, function()
 			if Tutorial.Running then
 				return

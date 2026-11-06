@@ -14,6 +14,7 @@ MOUNTS = {
     "src/shared": "game.ReplicatedStorage.Shared",
     "src/server": "game.ServerScriptService.Server",
     "src/client": "game.StarterPlayer.StarterPlayerScripts.Client",
+    "src/first": "game.ReplicatedFirst",
 }
 
 

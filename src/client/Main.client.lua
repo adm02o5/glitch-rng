@@ -124,18 +124,40 @@ local function ambience()
 		end
 	end
 end
-ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(ambience)
-Ctx.Changed.Event:Connect(ambience)
-task.defer(ambience)
-ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(updateMusic)
-game:GetService("Players").LocalPlayer:GetAttributeChangedSignal("Aura"):Connect(updateMusic)
-Ctx.Changed.Event:Connect(updateMusic)
-
 local first = Ctx.Request("Hello")
 if first then
 	Ctx.Set(first)
 end
-updateMusic()
+
+-- The boot screen (ReplicatedFirst/LoadingScreen) asks about reduced flashing before the profile
+-- arrives: save that choice, and tell the boot screen what is already saved.
+local me = game:GetService("Players").LocalPlayer
+local function syncCalm()
+	local pick = me:GetAttribute("CalmPick")
+	local s = Ctx.Data.Settings
+	if s and typeof(pick) == "boolean" and (s.Calm == true) ~= pick then
+		Ctx.Setting("Calm", pick)
+	end
+end
+if Ctx.Data.Settings then
+	me:SetAttribute("CalmSaved", Ctx.Data.Settings.Calm == true)
+end
+syncCalm()
+me:GetAttributeChangedSignal("CalmPick"):Connect(syncCalm)
+
+-- Music and ambience start once the boot screen (which plays its own theme) is gone.
+task.spawn(function()
+	while me:GetAttribute("Booting") == true do
+		task.wait(0.1)
+	end
+	ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(ambience)
+	Ctx.Changed.Event:Connect(ambience)
+	ReplicatedStorage:GetAttributeChangedSignal("Biome"):Connect(updateMusic)
+	me:GetAttributeChangedSignal("Aura"):Connect(updateMusic)
+	Ctx.Changed.Event:Connect(updateMusic)
+	ambience()
+	updateMusic()
+end)
 
 -- First-time players get the guided tour once their data has loaded.
 Tutorial.Auto()

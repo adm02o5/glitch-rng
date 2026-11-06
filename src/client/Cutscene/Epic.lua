@@ -10,6 +10,7 @@
 
 local Client = script.Parent.Parent
 local Kit = require(Client.UI.Kit)
+local Ctx = require(Client.Ctx)
 local U = require(script.Parent.Util)
 local Fx = require(script.Parent.Fx)
 
@@ -581,12 +582,16 @@ function Scenes.Blackout(S: any)
 	cc.Contrast = 0.4
 	S:burst(1.5)
 	local lastBeat = -1
+	-- reduced flashing: slow (< 3 Hz), faint pulses instead of strobes
+	local calm = Ctx.Calm()
+	local period = if calm then 0.42 else 0.14
+	local floorT = if calm then 0.75 else 0.35
 	S:phase(0.85, function(_: number, e: number)
-		local beat = math.floor(e / 0.14)
-		local ph = (e % 0.14) / 0.14
+		local beat = math.floor(e / period)
+		local ph = (e % period) / period
 		local onL = beat % 2 == 0
-		left.BackgroundTransparency = if onL then 0.35 + 0.6 * ph else 1
-		right.BackgroundTransparency = if not onL then 0.35 + 0.6 * ph else 1
+		left.BackgroundTransparency = if onL then floorT + (1 - floorT) * ph else 1
+		right.BackgroundTransparency = if not onL then floorT + (1 - floorT) * ph else 1
 		for _, c in cols do
 			c.BackgroundTransparency = lerp(0.15, 1, seg(e, 0, 0.5))
 		end
