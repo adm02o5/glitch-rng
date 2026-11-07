@@ -478,20 +478,24 @@ new("UIGradient", {
 	}),
 	Parent = scanBar,
 })
-for _, d in { { 0, 0.5, 90 }, { 1, 0.5, 270 }, { 0.5, 0, 180 }, { 0.5, 1, 0 } } do
-	local vert = d[3] == 0 or d[3] == 180
+for _, d in { { 0, 0.5, 180 }, { 1, 0.5, 0 }, { 0.5, 0, 270 }, { 0.5, 1, 90 } } do
+	local vert = d[3] == 90 or d[3] == 270
 	local f = new("Frame", {
 		BorderSizePixel = 0,
 		BackgroundColor3 = BLACK,
 		AnchorPoint = Vector2.new(d[1], d[2]),
 		Position = UDim2.fromScale(d[1], d[2]),
-		Size = if vert then UDim2.fromScale(1, 0.28) else UDim2.fromScale(0.22, 1),
+		Size = if vert then UDim2.fromScale(1, 0.22) else UDim2.fromScale(0.18, 1),
 		ZIndex = 9,
 		Parent = root,
 	})
 	new("UIGradient", {
 		Rotation = d[3] :: number,
-		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.1) }),
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.6, 0.6),
+			NumberSequenceKeypoint.new(1, 0.15),
+		}),
 		Parent = f,
 	})
 end
@@ -502,7 +506,7 @@ local function cornerBlock(ax: number, ay: number, lines: { string }, color: Col
 	local holder = new("Frame", {
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(ax, ay),
-		Position = UDim2.new(ax, if ax == 0 then 34 else -34, ay, if ay == 0 then 26 else -26),
+		Position = UDim2.new(ax, if ax == 0 then 34 else -34, ay, if ay == 0 then 82 else -26),
 		Size = UDim2.fromOffset(420, #lines * 20),
 		ZIndex = 12,
 		Parent = canvas,
@@ -530,7 +534,7 @@ for _, c in { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } do
 	local f = new("Frame", {
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(c[1], c[2]),
-		Position = UDim2.new(c[1], if c[1] == 0 then 14 else -14, c[2], if c[2] == 0 then 12 else -12),
+		Position = UDim2.new(c[1], if c[1] == 0 then 14 else -14, c[2], if c[2] == 0 then 66 else -12),
 		Size = UDim2.fromOffset(40, 40),
 		ZIndex = 12,
 		Parent = canvas,
@@ -570,7 +574,7 @@ local logo = new("Frame", {
 	Parent = canvas,
 })
 local logoScale = new("UIScale", { Parent = logo })
-local LOGO_TEXT = 'GLITCH<font color="#FF2BD6"> RNG</font>'
+local LOGO_TEXT = 'GLITCH  <font color="#FF2BD6">RNG</font>'
 local SLICES = 9
 type Slice = { f: Frame, inner: Frame, white: TextLabel, cy: TextLabel, mg: TextLabel, off: number }
 local slices: { Slice } = {}
@@ -605,8 +609,8 @@ for i = 1, SLICES do
 	end
 	local cy = layer(CYAN, 0.25, 21)
 	local mg = layer(MAGENTA, 0.25, 21)
-	mg.Text = "GLITCH RNG"
-	cy.Text = "GLITCH RNG"
+	mg.Text = "GLITCH  RNG"
+	cy.Text = "GLITCH  RNG"
 	local white = layer(WHITE, 0, 22)
 	slices[i] = { f = f, inner = inner, white = white, cy = cy, mg = mg, off = 0 }
 end
@@ -632,7 +636,9 @@ local ulGrad = new("UIGradient", {
 })
 local tagline = label(canvas, "", 20, {
 	FontFace = MONO_B,
-	TextColor3 = DIM,
+	TextColor3 = TEXT,
+	TextStrokeColor3 = BG,
+	TextStrokeTransparency = 0.2,
 	TextXAlignment = Enum.TextXAlignment.Center,
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0.33, LOGO_H / 2 + 20),
@@ -1147,15 +1153,16 @@ local function shortNum(n: number): string
 end
 
 task.spawn(function()
-	log(" .. ", "power on self test", DIM)
-	task.wait(0.25)
-	log(" OK ", "memory 4096K · display " .. floor(viewport().X) .. "x" .. floor(viewport().Y))
+	local post = log(" .. ", "power on self test", DIM)
+	task.wait(0.35)
+	relog(post, " OK ", "power on self test · glitch kernel online")
 	local hs = log(" .. ", "linking to server node", DIM)
 	stageText = "HANDSHAKE"
 	if not game:IsLoaded() then
 		game.Loaded:Wait()
 	end
 	progress.handshake = 1
+	log(" OK ", "memory 4096K · display " .. floor(viewport().X) .. "x" .. floor(viewport().Y))
 	local job = if game.JobId ~= "" then string.sub(game.JobId, 1, 8) else "local"
 	relog(hs, " OK ", "link established · node " .. job)
 	tr[2].Text = "node " .. string.upper(job)
@@ -1235,11 +1242,13 @@ task.spawn(function()
 			if closed then
 				break
 			end
-			local batch = {}
+			local batch: { Instance } = {}
 			for k = i, min(total, i + BATCH - 1) do
-				table.insert(batch, ids[k])
+				local snd = Instance.new("Sound")
+				snd.SoundId = ids[k]
+				table.insert(batch, snd)
 			end
-			detailText = "audio://" .. string.lower(names[batch[1]] or "?") .. ".ogg"
+			detailText = "audio://" .. string.lower(names[ids[i]] or "?") .. ".ogg"
 			pcall(function()
 				ContentProvider:PreloadAsync(batch, function(_cid: string, st: Enum.AssetFetchStatus)
 					done += 1
@@ -1250,6 +1259,9 @@ task.spawn(function()
 					countText = string.format("%d / %d", done, total)
 				end)
 			end)
+			for _, snd in batch do
+				snd:Destroy()
+			end
 			relog(al, " .. ", string.format("fetching assets %d/%d", done, total), DIM)
 		end
 		progress.assets = 1
